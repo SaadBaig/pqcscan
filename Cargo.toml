@@ -14,7 +14,10 @@ lazy_static = "1.5.0"
 log = "0.4.25"
 rand = "0.9.3"
 rust-embed = { version = "8.5.0", features = ["include-exclude", "interpolate-folder-path"] }
+rustls = { version = "0.23", features = ["aws_lc_rs", "prefer-post-quantum", "std", "tls12"], default-features = false }
+rustls-post-quantum = "0.2"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.138"
 tera = "1.20.0"
 tokio = { version = "1.45.0", features = ["full"] }
+webpki-roots = "0.26"

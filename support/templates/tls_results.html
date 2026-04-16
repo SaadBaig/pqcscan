@@ -84,6 +84,108 @@
                         <td class="text-warning">{{ result['pqc_supported']}}</td>
                     {% endif %}
                     </tr>
+                    {% if result['negotiated_cipher_suite'] %}
+                    <tr>
+                        <th width="20%">Negotiated Cipher Suite</th>
+                        <td>{{ result['negotiated_cipher_suite'] }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if result['negotiated_group'] %}
+                    <tr>
+                        <th width="20%">Negotiated Group</th>
+                        <td>{{ result['negotiated_group'] }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if result['negotiated_version'] %}
+                    <tr>
+                        <th width="20%">Negotiated Version</th>
+                        <td>{{ result['negotiated_version'] }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if result['is_hello_retry_request'] %}
+                    <tr>
+                        <th width="20%">HelloRetryRequest</th>
+                        <td class="text-info">Server responded with HelloRetryRequest (supports group but requires key share)</td>
+                    </tr>
+                    {% endif %}
+                    {% if result['handshake_pqc'] %}
+                    <tr>
+                        <th width="100%" colspan="2" class="text-center"><strong>Full Handshake Validation (PQC)</strong></th>
+                    </tr>
+                    <tr>
+                        <th width="20%">Handshake Completed</th>
+                        <td>{% if result['handshake_pqc']['completed'] %}<span class="text-success">true</span>{% else %}<span class="text-danger">false</span>{% endif %}</td>
+                    </tr>
+                    {% if result['handshake_pqc']['negotiated_cipher_suite'] %}
+                    <tr>
+                        <th width="20%">Cipher Suite</th>
+                        <td>{{ result['handshake_pqc']['negotiated_cipher_suite'] }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if result['handshake_pqc']['negotiated_group'] %}
+                    <tr>
+                        <th width="20%">Key Exchange Group</th>
+                        <td>{{ result['handshake_pqc']['negotiated_group'] }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if result['handshake_pqc']['negotiated_version'] %}
+                    <tr>
+                        <th width="20%">Protocol Version</th>
+                        <td>{{ result['handshake_pqc']['negotiated_version'] }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if result['handshake_pqc']['handshake_error'] %}
+                    <tr>
+                        <th width="20%">Error</th>
+                        <td class="text-danger">{{ result['handshake_pqc']['handshake_error'] }}</td>
+                    </tr>
+                    {% endif %}
+                    {% endif %}
+                    {% if result['handshake_classical'] %}
+                    <tr>
+                        <th width="100%" colspan="2" class="text-center"><strong>Full Handshake Validation (Classical)</strong></th>
+                    </tr>
+                    <tr>
+                        <th width="20%">Handshake Completed</th>
+                        <td>{% if result['handshake_classical']['completed'] %}<span class="text-success">true</span>{% else %}<span class="text-danger">false</span>{% endif %}</td>
+                    </tr>
+                    {% if result['handshake_classical']['negotiated_group'] %}
+                    <tr>
+                        <th width="20%">Key Exchange Group</th>
+                        <td>{{ result['handshake_classical']['negotiated_group'] }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if result['handshake_classical']['handshake_error'] %}
+                    <tr>
+                        <th width="20%">Error</th>
+                        <td class="text-danger">{{ result['handshake_classical']['handshake_error'] }}</td>
+                    </tr>
+                    {% endif %}
+                    {% endif %}
+                    {% if result['downgrade_check'] %}
+                    <tr>
+                        <th width="100%" colspan="2" class="text-center"><strong>Downgrade Detection</strong></th>
+                    </tr>
+                    <tr>
+                        <th width="20%">PQC Offered &amp; Used</th>
+                        <td>{% if result['downgrade_check']['pqc_offered_and_used'] %}<span class="text-success">true</span>{% else %}<span class="text-warning">false</span>{% endif %}</td>
+                    </tr>
+                    <tr>
+                        <th width="20%">Classical Fallback</th>
+                        <td>{% if result['downgrade_check']['classical_fallback_works'] %}<span class="text-success">Available</span>{% else %}<span class="text-warning">Unavailable</span>{% endif %}</td>
+                    </tr>
+                    {% if result['downgrade_check']['potential_downgrade'] %}
+                    <tr>
+                        <th width="20%">Potential Downgrade</th>
+                        <td class="text-danger"><strong>WARNING:</strong> {{ result['downgrade_check']['details'] }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <th width="20%">Assessment</th>
+                        <td>{{ result['downgrade_check']['details'] }}</td>
+                    </tr>
+                    {% endif %}
+                    {% endif %}
                     {% endif %}
                 </tbody>
                 </table>

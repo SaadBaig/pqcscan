@@ -2,6 +2,8 @@
 
 *Scan SSH/TLS servers for PQC support*
 
+> **Fork note:** This fork extends the original [pqcscan](https://github.com/anvilsecure/pqcscan) by Anvil Secure with full TLS handshake validation, negotiated behavior analysis, and downgrade attack detection.
+
 # Overview
 
 **pqcscan** is a small utility, written in Rust, that allows users to scan SSH and TLS servers for their stated support of Post-Quantum Cryptography algorithms. Scan results are written to JSON files. One or more of these result files can be converted into an easily digestible HTML report that can be viewed with a web browser. For sample screenshots look below in this README.
@@ -13,6 +15,39 @@ To scan simply provide a list of hostnames/IPs and port numbers and chose the ty
 - The list of SSH KEX (key exchange) PQC algorithms was manually put together based on [OpenSSH](https://www.openssh.com/), as well as [OQS-OpenSSH](https://github.com/open-quantum-safe/openssh). A lot of those algorithms are experimental algorithms and will hopefully never be encountered in production but they are useful for testing the tool and seeing if someone is deploying experimental algorithms in production in practice somewhere.
  
 - For TLS the tool can identify all common and standardized PQC-hybrid and PQC algorithms. Experimental algorithms are right now not supported due to the increase in scanning time. These might be added in the future.
+
+## What This Fork Adds
+
+The original pqcscan reports what servers *advertise* — this fork goes further by validating what servers actually *negotiate and use*.
+
+### Negotiated Behavior Validation
+The raw-byte TLS scanner now fully parses the ServerHello response to extract:
+- **Negotiated cipher suite** — the actual cipher the server selected
+- **Negotiated key exchange group** — from the `key_share` extension
+- **Negotiated TLS version** — from the `supported_versions` extension
+- **HelloRetryRequest detection** — identifies when a server responds with an HRR (RFC 8446 sentinel random) rather than a full ServerHello
+
+Protocol violations are logged as warnings: group mismatches (server picked a group you didn't offer), unexpected TLS versions, or cipher suites outside the offered set.
+
+### Full Handshake Validation (`--validate-handshake`)
+Using [rustls](https://github.com/rustls/rustls) with [rustls-post-quantum](https://crates.io/crates/rustls-post-quantum), the tool performs two complete TLS 1.3 handshakes per target:
+
+1. **PQC-enabled handshake** — offers ML-KEM hybrid key exchange (X25519MLKEM768) alongside classical groups
+2. **Classical-only handshake** — explicitly excludes all PQC/ML-KEM groups, offering only classical ECDH
+
+Both handshakes complete the full key exchange, encrypted extensions, certificate verification, and Finished message exchange — not just the initial ClientHello/ServerHello.
+
+### Downgrade Attack Detection
+By comparing the results of both handshakes, the tool detects potential downgrade scenarios:
+- **PQC offered and used** — server negotiated a PQC group when it was available
+- **Classical fallback** — server gracefully falls back to classical groups when PQC is not offered
+- **Potential downgrade warning** — server chose a classical group even though PQC was offered, which may indicate a misconfiguration, an intermediary stripping PQC support, or a deliberate downgrade
+
+### New Dependencies
+This fork adds the following crates:
+- `rustls` (with `prefer-post-quantum` and `aws_lc_rs` features)
+- `rustls-post-quantum` — provides the PQC-enabled crypto provider
+- `webpki-roots` — Mozilla root certificate store
  
 ## Bugs, comments, suggestions
 The code should be somewhat idiomatic Rust, but there will be tons of ways to improve it. From the way the HTML files are now built up and generated to other smaller issues. For more information see the `TODO` file in the repository. All input is welcome! Just send in direct pull requests or bugs/issues via GitHub. You are also welcome to directly email the principal author and maintainer, Vincent Berg, at *gvb@anvilsecure.com*.
@@ -41,6 +76,31 @@ pqcscan tls-scan -t gmail.com:443 -o gmail.json
 pqcscan tls-scan -t pq.cloudflareresearch.com:443 -o cloudflare.json
 pqcscan create-report -i gmail.json cloudflare.json -o report.html
 ```
+
+## Full Handshake Validation
+
+To perform full TLS handshake validation with downgrade detection, add the `--validate-handshake` flag:
+
+```
+pqcscan tls-scan -t cloudflare.com:443 --validate-handshake -o cloudflare.json
+pqcscan create-report -i cloudflare.json -o report.html
+```
+
+This performs two real TLS 1.3 handshakes per target (PQC-enabled and classical-only), extracts the negotiated parameters from each, and compares them to flag potential downgrade issues. The results appear in both the JSON output and the HTML report.
+
+Example output:
+
+```
+$ pqcscan tls-scan -t cloudflare.com:443 --validate-handshake
+[INFO  pqcscan::tls] TLS scan: cloudflare.com:443 sent HelloRetryRequest for group X25519MLKEM768
+[INFO  pqcscan::tls] TLS scan: cloudflare.com:443 negotiated cipher=TLS_AES_128_GCM_SHA256, group=X25519MLKEM768, version=0x0304
+[INFO  pqcscan::tls] TLS scan: cloudflare.com:443 supports hybrid PQC algorithm: X25519MLKEM768
+[INFO  pqcscan::handshake] PQC handshake completed for cloudflare.com:443 (cipher=TLS13_AES_256_GCM_SHA384, group=X25519MLKEM768)
+[INFO  pqcscan::handshake] classical handshake completed for cloudflare.com:443 (cipher=TLS13_AES_256_GCM_SHA384, group=X25519)
+[INFO  pqcscan::handshake] downgrade check — pqc_used=true, classical_fallback=true, potential_downgrade=false
+```
+
+## Standard Usage
 
 You can also create a target list in a file and supply it via `-T`. This works for both `tls-scan` and `ssh-scan`.
 

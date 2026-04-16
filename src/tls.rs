@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use crate::config::Config;
+use crate::handshake;
 use crate::scan::ScanResult;
 use crate::utils::Target;
 
@@ -10,7 +11,7 @@ use rand::{rng, Rng};
 use rust_embed::RustEmbed;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::io::{Cursor, Read, Write};
+use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::net::TcpStream;
 use std::time::Duration;
 
@@ -80,6 +81,13 @@ struct KeyShareEntry {
     exchange: Vec<u8>,
 }
 
+struct ServerHelloResult {
+    negotiated_cipher_suite: u16,
+    negotiated_version: u16,
+    negotiated_group: Option<u16>,
+    is_hello_retry_request: bool,
+}
+
 pub struct TlsConfig {
     pub default_port: u16,
     pub groups: HashMap<String, TlsGroup>,
@@ -124,6 +132,18 @@ impl TlsConfig {
         let json_data = std::str::from_utf8(json_file.data.as_ref()).unwrap();
         let sig_schemes = serde_json::from_str(&json_data).unwrap();
         return sig_schemes;
+    }
+
+    pub fn group_name_by_id(&self, id: u16) -> Option<String> {
+        self.groups.iter()
+            .find(|(_, g)| g.group_id == id)
+            .map(|(name, _)| name.clone())
+    }
+
+    pub fn cipher_suite_name_by_id(&self, id: u16) -> Option<String> {
+        self.cipher_suites.iter()
+            .find(|(_, cs)| cs.cipher_suite_id == id)
+            .map(|(name, _)| name.clone())
     }
 }
 
@@ -307,6 +327,8 @@ pub struct ClientHelloBuilder {
     extensions: Vec<Extension>,
 }
 
+
+
 impl ClientHelloBuilder {
     fn new() -> ClientHelloBuilder {
         let mut random: [u8; 32] = [0; 32];
@@ -397,7 +419,7 @@ fn tls_connect_with_group(
     group: u16,
     group_name: &str,
     config: &Arc<Config>,
-) -> Result<()> {
+) -> Result<ServerHelloResult> {
     log::trace!("TLS: attempting handshake with group {}", group_name);
 
     // Load cipher suites from JSON configuration
@@ -440,7 +462,7 @@ fn tls_connect_with_group(
 
     log::trace!("TLS: sending ClientHello");
     stream.write(&chb.into_buf()?)?;
-    let mut buf: [u8; 5000] = [0; 5000];
+    let mut buf: [u8; 16384] = [0; 16384];
 
     log::trace!("TLS: waiting for ServerHello");
     let read = stream.read(&mut buf)?;
@@ -471,8 +493,61 @@ fn tls_connect_with_group(
         if version != 0x0303 {
             return Err(anyhow!("Expected TLS 1.2 (0x0303) version number"));
         }
+        let mut server_random = [0u8; 32];
+        cursor.read_exact(&mut server_random)?;
+
+        // RFC 8446 Section 4.1.3: HelloRetryRequest uses a special sentinel random value
+        const HRR_RANDOM: [u8; 32] = [
+            0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11,
+            0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
+            0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E,
+            0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C,
+        ];
+        let is_hello_retry_request = server_random == HRR_RANDOM;
+        if is_hello_retry_request {
+            log::info!("TLS: received HelloRetryRequest (not a real ServerHello)");
+        }
+        let session_id_len = cursor.read_u8()? as i64;
+        cursor.seek(SeekFrom::Current(session_id_len))?;
+        let negotiated_cipher_suite = cursor.read_u16::<NetworkEndian>()?;
+        let _compression = cursor.read_u8()?;
+        let extensions_length = cursor.read_u16::<NetworkEndian>()?;
+        let extensions_end = cursor.position() + extensions_length as u64;
+
+        let mut negotiated_version: u16 = 0;
+        let mut negotiated_group: Option<u16> = None;
+
+        while cursor.position() < extensions_end {
+            let ext_type = cursor.read_u16::<NetworkEndian>()?;
+            let ext_len = cursor.read_u16::<NetworkEndian>()?;
+
+            match ext_type {
+                43 => {
+                    // supported_versions — single u16
+                    negotiated_version = cursor.read_u16::<NetworkEndian>()?;
+                }
+                51 => {
+                    // key_share — first u16 is the selected group
+                    negotiated_group = Some(cursor.read_u16::<NetworkEndian>()?);
+                    // skip the rest (key exchange length + key exchange data)
+                    let remaining = ext_len as i64 - 2;
+                    if remaining > 0 {
+                        cursor.seek(SeekFrom::Current(remaining))?;
+                    }
+                }
+                _ => {
+                    // skip unknown extensions
+                    cursor.seek(SeekFrom::Current(ext_len as i64))?;
+                }
+            }
+        }
         log::trace!("TLS: ServerHello handshake successful");
-        return Ok(());
+        return Ok(ServerHelloResult {
+            negotiated_cipher_suite,
+            negotiated_version,
+            negotiated_group,
+            is_hello_retry_request,
+        });
     } else if content_type == 0x15 {
         log::trace!("TLS: received Alert message");
         /* TLS Alert record received*/
@@ -506,6 +581,7 @@ pub async fn tls_scan_target(
     target: &Target,
     hybrid_algos_only: bool,
     scan_nonpqc_algos: bool,
+    validate_handshake_flag: bool,
 ) -> ScanResult {
     log::debug!("TLS scan: starting scan of {}", target);
 
@@ -513,6 +589,10 @@ pub async fn tls_scan_target(
     let mut pqc_algos: Vec<String> = vec![];
     let mut hybrid_algos: Vec<String> = vec![];
     let mut nonpqc_algos: Vec<String> = vec![];
+    let mut last_negotiated_cipher_suite: Option<String> = None;
+    let mut last_negotiated_group: Option<String> = None;
+    let mut last_negotiated_version: Option<String> = None;
+    let mut last_is_hello_retry_request: bool = false;
 
     // Build list of groups to test from the configuration
     let mut groups_to_test: Vec<(String, &TlsGroup)> = vec![];
@@ -554,6 +634,13 @@ pub async fn tls_scan_target(
                 pqc_algos: None,
                 hybrid_algos: None,
                 nonpqc_algos: None,
+                negotiated_cipher_suite: None,
+                negotiated_group: None,
+                negotiated_version: None,
+                is_hello_retry_request: false,
+                handshake_pqc: None,
+                handshake_classical: None,
+                downgrade_check: None,
             };
         }
         let (_addr, stream) = ret.unwrap();
@@ -581,7 +668,58 @@ pub async fn tls_scan_target(
             config,
         );
         match ret {
-            Ok(_) => {
+            Ok(result) => {
+                if result.is_hello_retry_request {
+                    log::info!(
+                        "TLS scan: {} sent HelloRetryRequest for group {} (server supports but needs key share)",
+                        target, group_name
+                    );
+                }
+                last_is_hello_retry_request = result.is_hello_retry_request;
+
+                last_negotiated_cipher_suite = config.tls_config
+                    .cipher_suite_name_by_id(result.negotiated_cipher_suite)
+                    .or_else(|| Some(format!("unknown(0x{:04x})", result.negotiated_cipher_suite)));
+                last_negotiated_group = result.negotiated_group.map(|g| {
+                    config.tls_config.group_name_by_id(g)
+                        .unwrap_or_else(|| format!("unknown(0x{:04x})", g))
+                });
+                last_negotiated_version = Some(format!("0x{:04x}", result.negotiated_version));
+
+                log::info!(
+                    "TLS scan: {} negotiated cipher={}, group={}, version={}",
+                    target,
+                    last_negotiated_cipher_suite.as_deref().unwrap_or("none"),
+                    last_negotiated_group.as_deref().unwrap_or("none"),
+                    last_negotiated_version.as_deref().unwrap_or("none"),
+                );
+
+                // Validate: negotiated group should match what we offered
+                if let Some(neg_group) = result.negotiated_group {
+                    if neg_group != group_info.group_id {
+                        log::warn!(
+                            "TLS scan: {} protocol violation - offered group {} (0x{:04x}) but server negotiated 0x{:04x}",
+                            target, group_name, group_info.group_id, neg_group
+                        );
+                    }
+                }
+
+                // Validate: negotiated version should be TLS 1.3 (0x0304) since we only offer that
+                if result.negotiated_version != 0x0304 {
+                    log::warn!(
+                        "TLS scan: {} unexpected negotiated version 0x{:04x} (expected TLS 1.3 / 0x0304)",
+                        target, result.negotiated_version
+                    );
+                }
+
+                // Validate: negotiated cipher suite should be one we offered
+                if config.tls_config.cipher_suite_name_by_id(result.negotiated_cipher_suite).is_none() {
+                    log::warn!(
+                        "TLS scan: {} negotiated cipher suite 0x{:04x} was not in our offered set",
+                        target, result.negotiated_cipher_suite
+                    );
+                }
+
                 if group_info.pqc && !group_info.hybrid {
                     log::info!(
                         "TLS scan: {} supports PQC algorithm: {}",
@@ -623,6 +761,15 @@ pub async fn tls_scan_target(
         target,
         pqc_supported
     );
+
+    // Run full handshake validation if requested
+    let (handshake_pqc, handshake_classical, downgrade_check) = if validate_handshake_flag {
+        let (pqc, classical, downgrade) = handshake::validate_handshake(config, target);
+        (Some(pqc), Some(classical), Some(downgrade))
+    } else {
+        (None, None, None)
+    };
+
     let ret = ScanResult::Tls {
         targetspec: target.clone(),
         addr: addr,
@@ -631,6 +778,13 @@ pub async fn tls_scan_target(
         pqc_algos: Some(pqc_algos),
         hybrid_algos: Some(hybrid_algos),
         nonpqc_algos: Some(nonpqc_algos),
+        negotiated_cipher_suite: last_negotiated_cipher_suite,
+        negotiated_group: last_negotiated_group,
+        negotiated_version: last_negotiated_version,
+        is_hello_retry_request: last_is_hello_retry_request,
+        handshake_pqc,
+        handshake_classical,
+        downgrade_check,
     };
     return ret;
 }

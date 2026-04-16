@@ -14,6 +14,7 @@ use tera::{Context, Tera};
 use tokio::runtime::Runtime;
 
 mod config;
+mod handshake;
 mod scan;
 mod ssh;
 mod tls;
@@ -331,6 +332,11 @@ fn main() -> Result<()> {
                         .required(false)
                         .action(ArgAction::SetTrue)
                         .help("Test non-PQC algorithms in the scan"),
+                    Arg::new("validate-handshake")
+                        .long("validate-handshake")
+                        .required(false)
+                        .action(ArgAction::SetTrue)
+                        .help("Perform full TLS handshake validation with PQC and classical configs to detect downgrade attacks"),
                 ])
                 .disable_help_flag(true)
                 .disable_version_flag(true),
@@ -366,6 +372,7 @@ fn main() -> Result<()> {
         scan_type: None,
         scan_hybrid_algos_only: false,
         scan_nonpqc_algos: false,
+        validate_handshake: false,
     };
 
     let mut output_json_file: Option<&String> = None;
@@ -384,6 +391,11 @@ fn main() -> Result<()> {
             scan.scan_nonpqc_algos = *sub_matches.get_one::<bool>("test-nonpqc-algos").unwrap();
             if scan.scan_nonpqc_algos {
                 log::info!("Including non-PQC algorithms in the scan");
+            }
+            scan.validate_handshake =
+                *sub_matches.get_one::<bool>("validate-handshake").unwrap();
+            if scan.validate_handshake {
+                log::info!("Full handshake validation enabled");
             }
             scan.num_threads = *sub_matches.get_one::<usize>("num-threads").unwrap();
             log::info!("Using {} thread(s)", scan.num_threads);

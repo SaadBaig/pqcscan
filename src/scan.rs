@@ -3,6 +3,7 @@ use chrono::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+use crate::handshake::{DowngradeCheck, HandshakeValidation};
 use crate::ssh::ssh_scan_target;
 use crate::tls::tls_scan_target;
 use crate::Config;
@@ -25,6 +26,13 @@ pub enum ScanResult {
         pqc_algos: Option<Vec<String>>,
         hybrid_algos: Option<Vec<String>>,
         nonpqc_algos: Option<Vec<String>>,
+        negotiated_cipher_suite: Option<String>,
+        negotiated_group: Option<String>,
+        negotiated_version: Option<String>,
+        is_hello_retry_request: bool,
+        handshake_pqc: Option<HandshakeValidation>,
+        handshake_classical: Option<HandshakeValidation>,
+        downgrade_check: Option<DowngradeCheck>,
     },
     Done,
 }
@@ -50,6 +58,7 @@ pub struct ScanOptions {
     pub scan_type: Option<ScanType>,
     pub scan_hybrid_algos_only: bool,
     pub scan_nonpqc_algos: bool,
+    pub validate_handshake: bool,
 }
 
 pub async fn scan_runner(config: Arc<Config>, scan: ScanOptions) -> Scan {
@@ -122,6 +131,7 @@ pub async fn scan_runner(config: Arc<Config>, scan: ScanOptions) -> Scan {
                                 &target,
                                 scan.scan_hybrid_algos_only,
                                 scan.scan_nonpqc_algos,
+                                scan.validate_handshake,
                             )
                             .await
                         }
