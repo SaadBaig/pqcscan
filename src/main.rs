@@ -25,6 +25,148 @@ use crate::config::Config;
 use crate::scan::{scan_runner, Scan, ScanOptions, ScanResult, ScanType};
 use crate::utils::{parse_single_target, Target};
 
+fn print_scan_summary(results: &Scan) {
+    println!();
+    println!("═══════════════════════════════════════════════════════════════");
+    println!("  PQCscan Summary");
+    println!("═══════════════════════════════════════════════════════════════");
+    println!();
+
+    let duration = (results.end_time - results.start_time).num_milliseconds() as f64 / 1000.0;
+    println!("  Scanned {} target(s) in {:.2}s", results.results.len(), duration);
+    println!();
+
+    for result in &results.results {
+        match result {
+            ScanResult::Tls {
+                targetspec,
+                error,
+                pqc_supported,
+                pqc_algos,
+                hybrid_algos,
+                handshake_pqc,
+                handshake_classical,
+                downgrade_check,
+                ..
+            } => {
+                println!("  ┌─ {} (TLS)", targetspec);
+
+                if let Some(err) = error {
+                    println!("  │  Error: {}", err);
+                    println!("  └────────────────────────────────────────");
+                    println!();
+                    continue;
+                }
+
+                if *pqc_supported {
+                    println!("  │  PQC Support:    ✅ Yes");
+                    let mut algos = Vec::new();
+                    if let Some(pqc) = pqc_algos {
+                        algos.extend(pqc.iter().cloned());
+                    }
+                    if let Some(hybrid) = hybrid_algos {
+                        algos.extend(hybrid.iter().cloned());
+                    }
+                    if !algos.is_empty() {
+                        algos.sort();
+                        println!("  │  PQC Algorithms: {}", algos.join(", "));
+                    }
+                } else {
+                    println!("  │  PQC Support:    ❌ No");
+                }
+
+                if let Some(pqc_hs) = handshake_pqc {
+                    println!("  │");
+                    println!("  │  Full Handshake (PQC-enabled):");
+                    if pqc_hs.completed {
+                        println!("  │    Status:       ✅ Completed");
+                        if let Some(ref cs) = pqc_hs.negotiated_cipher_suite {
+                            println!("  │    Cipher Suite: {}", cs);
+                        }
+                        if let Some(ref g) = pqc_hs.negotiated_group {
+                            println!("  │    Key Exchange: {}", g);
+                        }
+                        if let Some(ref v) = pqc_hs.negotiated_version {
+                            println!("  │    TLS Version:  {}", v);
+                        }
+                    } else {
+                        println!("  │    Status:       ❌ Failed");
+                        if let Some(ref err) = pqc_hs.handshake_error {
+                            println!("  │    Error:        {}", err);
+                        }
+                    }
+                }
+
+                if let Some(classical_hs) = handshake_classical {
+                    println!("  │");
+                    println!("  │  Full Handshake (Classical-only):");
+                    if classical_hs.completed {
+                        println!("  │    Status:       ✅ Completed");
+                        if let Some(ref g) = classical_hs.negotiated_group {
+                            println!("  │    Key Exchange: {}", g);
+                        }
+                    } else {
+                        println!("  │    Status:       ❌ Failed");
+                        if let Some(ref err) = classical_hs.handshake_error {
+                            println!("  │    Error:        {}", err);
+                        }
+                    }
+                }
+
+                if let Some(dc) = downgrade_check {
+                    println!("  │");
+                    println!("  │  Downgrade Assessment:");
+                    if dc.potential_downgrade {
+                        println!("  │    ⚠️  POTENTIAL DOWNGRADE DETECTED");
+                    } else if dc.pqc_offered_and_used {
+                        println!("  │    ✅ PQC negotiated when offered");
+                    }
+                    if dc.classical_fallback_works {
+                        println!("  │    ✅ Classical fallback available");
+                    }
+                    println!("  │    {}", dc.details);
+                }
+
+                println!("  └────────────────────────────────────────");
+                println!();
+            }
+            ScanResult::Ssh {
+                targetspec,
+                error,
+                pqc_supported,
+                pqc_algos,
+                ..
+            } => {
+                println!("  ┌─ {} (SSH)", targetspec);
+
+                if let Some(err) = error {
+                    println!("  │  Error: {}", err);
+                    println!("  └────────────────────────────────────────");
+                    println!();
+                    continue;
+                }
+
+                if *pqc_supported {
+                    println!("  │  PQC Support:    ✅ Yes");
+                    if let Some(algos) = pqc_algos {
+                        let mut sorted = algos.clone();
+                        sorted.sort();
+                        println!("  │  PQC Algorithms: {}", sorted.join(", "));
+                    }
+                } else {
+                    println!("  │  PQC Support:    ❌ No");
+                }
+
+                println!("  └────────────────────────────────────────");
+                println!();
+            }
+            ScanResult::Done => {}
+        }
+    }
+
+    println!("═══════════════════════════════════════════════════════════════");
+}
+
 #[derive(RustEmbed)]
 #[folder = "$CARGO_MANIFEST_DIR/support/templates/"]
 struct EmbeddedResources;
@@ -442,6 +584,8 @@ fn main() -> Result<()> {
             "Scan duration: {:.2}s",
             (results.end_time - results.start_time).num_milliseconds() as f64 / 1000.0
         );
+
+        print_scan_summary(&results);
 
         /* write results to JSON output if requested */
         if output_json_file.is_some() {
