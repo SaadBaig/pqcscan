@@ -118,6 +118,25 @@ fn build_classical_client_config() -> Result<Arc<ClientConfig>> {
     Ok(Arc::new(config))
 }
 
+/// Build a rustls ClientConfig that offers TLS 1.2 to test for legacy fallback.
+fn build_tls12_client_config() -> Result<Arc<ClientConfig>> {
+    let mut provider = rustls::crypto::aws_lc_rs::default_provider();
+    provider.kx_groups.retain(|g| {
+        let name = format!("{:?}", g.name());
+        let name_upper = name.to_uppercase();
+        !name_upper.contains("MLKEM")
+            && !name_upper.contains("ML_KEM")
+            && !name_upper.contains("KYBER")
+    });
+    let config = ClientConfig::builder_with_provider(Arc::new(provider))
+        .with_protocol_versions(&[&rustls::version::TLS12])
+        .map_err(|e| anyhow!("Failed to set TLS 1.2 version: {}", e))?
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(NoVerifier))
+        .with_no_client_auth();
+    Ok(Arc::new(config))
+}
+
 /// Perform a full TLS handshake with the given config and extract negotiation details.
 fn do_handshake(
     tls_config: &Arc<ClientConfig>,
@@ -262,15 +281,16 @@ fn do_handshake(
 }
 
 /// Run a full handshake validation against a target.
-/// Performs two handshakes:
+/// Performs three handshakes:
 /// 1. With PQC groups enabled — to validate PQC negotiation
 /// 2. With only classical groups — to test fallback behavior
+/// 3. With TLS 1.2 only — to test legacy protocol fallback
 ///
 /// Compares results to detect potential downgrade scenarios.
 pub fn validate_handshake(
     config: &Config,
     target: &Target,
-) -> (HandshakeValidation, HandshakeValidation, DowngradeCheck) {
+) -> (HandshakeValidation, HandshakeValidation, HandshakeValidation, DowngradeCheck) {
     log::info!(
         "Handshake validation: starting full handshake with PQC for {}",
         target
@@ -295,7 +315,7 @@ pub fn validate_handshake(
                 potential_downgrade: false,
                 details: "Could not build PQC configuration".to_string(),
             };
-            return (err.clone(), err, downgrade);
+            return (err.clone(), err.clone(), err, downgrade);
         }
     };
     let pqc_result = do_handshake(&pqc_config, target, config.connection_timeout);
@@ -339,7 +359,7 @@ pub fn validate_handshake(
                 potential_downgrade: false,
                 details: "Could not build classical configuration".to_string(),
             };
-            return (pqc_result, err, downgrade);
+            return (pqc_result, err.clone(), err, downgrade);
         }
     };
     let classical_result = do_handshake(&classical_config, target, config.connection_timeout);
@@ -418,5 +438,37 @@ pub fn validate_handshake(
         target, pqc_used, classical_works, potential_downgrade
     );
 
-    (pqc_result, classical_result, downgrade)
+    // Handshake 3: TLS 1.2 fallback probe
+    log::info!(
+        "Handshake validation: starting TLS 1.2 fallback probe for {}",
+        target
+    );
+
+    let tls12_result = match build_tls12_client_config() {
+        Ok(c) => {
+            let result = do_handshake(&c, target, config.connection_timeout);
+            log::info!(
+                "Handshake validation: TLS 1.2 probe {} for {} (cipher={}, version={})",
+                if result.completed { "completed" } else { "failed" },
+                target,
+                result.negotiated_cipher_suite.as_deref().unwrap_or("none"),
+                result.negotiated_version.as_deref().unwrap_or("none"),
+            );
+            result
+        }
+        Err(e) => {
+            log::warn!("Handshake validation: could not build TLS 1.2 config: {}", e);
+            HandshakeValidation {
+                completed: false,
+                negotiated_cipher_suite: None,
+                negotiated_version: None,
+                negotiated_group: None,
+                peer_certificate_subject: None,
+                peer_certificate_sig_algo: None,
+                handshake_error: Some(format!("Failed to build TLS 1.2 config: {}", e)),
+            }
+        }
+    };
+
+    (pqc_result, classical_result, tls12_result, downgrade)
 }

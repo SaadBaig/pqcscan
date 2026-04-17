@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::config::Config;
 use crate::handshake;
+use crate::hndl;
 use crate::scan::ScanResult;
 use crate::utils::Target;
 
@@ -631,7 +632,9 @@ pub async fn tls_scan_target(
                 is_hello_retry_request: false,
                 handshake_pqc: None,
                 handshake_classical: None,
+                handshake_tls12: None,
                 downgrade_check: None,
+                hndl_assessment: None,
             };
         }
         let (_addr, stream) = ret.unwrap();
@@ -754,12 +757,44 @@ pub async fn tls_scan_target(
     );
 
     // Run full handshake validation if requested
-    let (handshake_pqc, handshake_classical, downgrade_check) = if validate_handshake_flag {
-        let (pqc, classical, downgrade) = handshake::validate_handshake(config, target);
-        (Some(pqc), Some(classical), Some(downgrade))
-    } else {
-        (None, None, None)
-    };
+    let (handshake_pqc, handshake_classical, handshake_tls12, downgrade_check, hndl_assessment) =
+        if validate_handshake_flag {
+            let (pqc, classical, tls12, downgrade) =
+                handshake::validate_handshake(config, target);
+
+            // Run HNDL risk assessment with all collected data
+            let hndl_input = hndl::HndlInput {
+                pqc_supported,
+                handshake_pqc: Some(&pqc),
+                handshake_classical: Some(&classical),
+                handshake_tls12: Some(&tls12),
+                downgrade_check: Some(&downgrade),
+                cert_key_type: pqc
+                    .peer_certificate_sig_algo
+                    .as_deref()
+                    .or(classical.peer_certificate_sig_algo.as_deref()),
+                cert_key_bits: None, // TODO: extract from certificate DER
+                cert_validity_days: None, // TODO: extract from certificate DER
+            };
+            let assessment = hndl::assess_hndl_risk(&hndl_input);
+
+            log::info!(
+                "HNDL assessment for {}: {} — {}",
+                target,
+                assessment.risk_level,
+                assessment.summary
+            );
+
+            (
+                Some(pqc),
+                Some(classical),
+                Some(tls12),
+                Some(downgrade),
+                Some(assessment),
+            )
+        } else {
+            (None, None, None, None, None)
+        };
 
     ScanResult::Tls {
         targetspec: target.clone(),
@@ -775,6 +810,8 @@ pub async fn tls_scan_target(
         is_hello_retry_request: last_is_hello_retry_request,
         handshake_pqc,
         handshake_classical,
+        handshake_tls12,
         downgrade_check,
+        hndl_assessment,
     }
 }

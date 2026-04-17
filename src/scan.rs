@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::handshake::{DowngradeCheck, HandshakeValidation};
+use crate::hndl::HndlAssessment;
 use crate::ssh::ssh_scan_target;
 use crate::tls::tls_scan_target;
 use crate::Config;
@@ -32,7 +33,9 @@ pub enum ScanResult {
         is_hello_retry_request: bool,
         handshake_pqc: Option<HandshakeValidation>,
         handshake_classical: Option<HandshakeValidation>,
+        handshake_tls12: Option<HandshakeValidation>,
         downgrade_check: Option<DowngradeCheck>,
+        hndl_assessment: Option<HndlAssessment>,
     },
     Done,
 }

@@ -2,7 +2,7 @@
 
 *Scan SSH/TLS servers for PQC support*
 
-> **Fork note:** This fork extends the original [pqcscan](https://github.com/anvilsecure/pqcscan) by Anvil Secure with full TLS handshake validation, negotiated behavior analysis, and downgrade attack detection. The tool validates ML-KEM key exchange across all NIST FIPS 203 variants — ML-KEM-512, ML-KEM-768, ML-KEM-1024, plus hybrid schemes (X25519MLKEM768, SECP256R1MLKEM768, SECP384R1MLKEM1024). The tool executes the full handshake lifecycle—key exchange, encrypted extensions, certificate verification, and Finished messages—moving beyond simple ClientHello/ServerHello inspection to confirm actual cryptographic behavior. This helps surface gaps between advertised PQC support and what servers actually negotiate in practice.
+> **Fork note:** This fork extends [pqcscan](https://github.com/anvilsecure/pqcscan) by Anvil Secure with full TLS 1.3 handshake validation, downgrade attack detection, and Harvest Now Decrypt Later (HNDL) risk assessment. It validates ML-KEM key exchange across all NIST FIPS 203 variants, completes real handshakes (not just ClientHello/ServerHello), probes for TLS 1.2 fallback paths, and flags servers whose traffic is quantum-decryptable today.
 
 # Overview
 
@@ -18,7 +18,7 @@ To scan simply provide a list of hostnames/IPs and port numbers and chose the ty
 
 ## What This Fork Adds
 
-The original pqcscan reports what servers *advertise* — this fork goes further by validating what servers actually *negotiate and use*.
+The original pqcscan reports what servers *advertise* — this fork goes further by validating what servers actually *negotiate and use*, and assesses the real-world quantum risk.
 
 ### Negotiated Behavior Validation
 The raw-byte TLS scanner now fully parses the ServerHello response to extract:
@@ -30,18 +30,35 @@ The raw-byte TLS scanner now fully parses the ServerHello response to extract:
 Protocol violations are logged as warnings: group mismatches (server picked a group you didn't offer), unexpected TLS versions, or cipher suites outside the offered set.
 
 ### Full Handshake Validation (`--validate-handshake`)
-Using [rustls](https://github.com/rustls/rustls) with [rustls-post-quantum](https://crates.io/crates/rustls-post-quantum), the tool performs two complete TLS 1.3 handshakes per target:
+Using [rustls](https://github.com/rustls/rustls) with [rustls-post-quantum](https://crates.io/crates/rustls-post-quantum), the tool performs three complete handshakes per target:
 
-1. **PQC-enabled handshake** — offers ML-KEM hybrid key exchange (X25519MLKEM768) alongside classical groups
-2. **Classical-only handshake** — explicitly excludes all PQC/ML-KEM groups, offering only classical ECDH
+1. **PQC-enabled handshake** (TLS 1.3) — offers ML-KEM hybrid key exchange alongside classical groups
+2. **Classical-only handshake** (TLS 1.3) — explicitly excludes all PQC/ML-KEM groups
+3. **TLS 1.2 fallback probe** — tests whether the server accepts legacy TLS 1.2 connections
 
-Both handshakes complete the full key exchange, encrypted extensions, certificate verification, and Finished message exchange — not just the initial ClientHello/ServerHello.
+All handshakes complete the full lifecycle — key exchange, encrypted extensions, certificate verification, and Finished messages.
 
 ### Downgrade Attack Detection
-By comparing the results of both handshakes, the tool detects potential downgrade scenarios:
+By comparing the results of the PQC and classical handshakes, the tool detects potential downgrade scenarios:
 - **PQC offered and used** — server negotiated a PQC group when it was available
 - **Classical fallback** — server gracefully falls back to classical groups when PQC is not offered
-- **Potential downgrade warning** — server chose a classical group even though PQC was offered, which may indicate a misconfiguration, an intermediary stripping PQC support, or a deliberate downgrade
+- **Potential downgrade warning** — server chose a classical group even though PQC was offered
+
+### Harvest Now, Decrypt Later (HNDL) Risk Assessment
+The tool evaluates whether captured traffic could be decrypted by a future quantum adversary. Six heuristic checks produce a severity-rated assessment:
+
+| Check | What it detects | Severity |
+|---|---|---|
+| No PQC key exchange | Server doesn't support PQC — all traffic is quantum-decryptable | 🔴 CRITICAL |
+| Static RSA key exchange | TLS 1.2 with RSA key transport — no forward secrecy at all | 🔴 CRITICAL |
+| TLS 1.2 fallback | Server accepts TLS 1.2 — attacker can downgrade to quantum-vulnerable protocol | 🟠 HIGH |
+| PQC advertised but not negotiated | Server claims PQC but chose classical in practice | 🟠 HIGH |
+| Downgrade amplification | Classical chosen when PQC was offered — active downgrade possible | 🟠 HIGH |
+| Weak forward secrecy | Small classical groups (secp256r1, X25519) offer less quantum margin | 🟡 MEDIUM |
+| Long-lived certificates | Extended validity increases impersonation window | 🟡 MEDIUM |
+| RSA/ECDSA certificates | Classical certificate keys are quantum-vulnerable | 🟡 MEDIUM |
+
+Servers rated HIGH or CRITICAL are flagged: **"Traffic captured today is decryptable post-quantum."**
 
 ### Validated PQC Algorithms
 The tool validates ML-KEM key exchange across all NIST FIPS 203 variants:
@@ -91,16 +108,16 @@ pqcscan tls-scan -t pq.cloudflareresearch.com:443 -o cloudflare.json
 pqcscan create-report -i gmail.json cloudflare.json -o report.html
 ```
 
-## Full Handshake Validation
+## Full Handshake Validation with HNDL Assessment
 
-To perform full TLS handshake validation with downgrade detection, add the `--validate-handshake` flag:
+To perform full TLS handshake validation with downgrade detection and HNDL risk assessment, add the `--validate-handshake` flag:
 
 ```
 pqcscan tls-scan -t cloudflare.com:443 --validate-handshake -o cloudflare.json
 pqcscan create-report -i cloudflare.json -o report.html
 ```
 
-This performs two real TLS 1.3 handshakes per target (PQC-enabled and classical-only), extracts the negotiated parameters from each, and compares them to flag potential downgrade issues. The results appear in both the JSON output and the HTML report.
+This performs three real handshakes per target (PQC, classical, TLS 1.2), extracts negotiated parameters, compares them for downgrade issues, and produces an HNDL risk rating. Results appear in JSON output, HTML reports, and the terminal summary.
 
 Example output:
 
@@ -111,7 +128,7 @@ $ pqcscan tls-scan -t cloudflare.com:443 --validate-handshake
   PQCscan Summary
 ═══════════════════════════════════════════════════════════════
 
-  Scanned 1 target(s) in 0.47s
+  Scanned 1 target(s) in 0.57s
 
   ┌─ cloudflare.com:443 (TLS)
   │  PQC Support:    ✅ Yes
@@ -132,6 +149,24 @@ $ pqcscan tls-scan -t cloudflare.com:443 --validate-handshake
   │    ✅ Classical fallback available
   │    Server negotiated PQC group (X25519MLKEM768) when offered.
   │    Classical fallback also works (X25519).
+  │
+  │  HNDL Risk:      🟠 HIGH
+  │  ⚠️  Traffic captured today is decryptable post-quantum
+  │
+  │    ℹ️  PQC Key Exchange Active
+  │      Server negotiates PQC key exchange (X25519MLKEM768) —
+  │      TLS 1.3 sessions are quantum-resistant for key exchange.
+  │
+  │    🟠 TLS 1.2 Fallback Available
+  │      Server accepts TLS 1.2 fallback. While forward secrecy
+  │      is present, the classical DH/ECDH key exchange is
+  │      quantum-vulnerable. An attacker can downgrade connections
+  │      to TLS 1.2 and harvest traffic.
+  │
+  │    🟡 Standard Classical Key Exchange
+  │      Classical fallback uses X25519 (~128-bit classical
+  │      security). Minimum acceptable strength but offers less
+  │      margin against early quantum computers.
   └────────────────────────────────────────
 
 ═══════════════════════════════════════════════════════════════

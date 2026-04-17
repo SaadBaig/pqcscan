@@ -14,6 +14,7 @@ use tokio::runtime::Runtime;
 
 mod config;
 mod handshake;
+mod hndl;
 mod scan;
 mod ssh;
 mod tls;
@@ -23,6 +24,28 @@ mod utils;
 use crate::config::Config;
 use crate::scan::{scan_runner, Scan, ScanOptions, ScanResult, ScanType};
 use crate::utils::{parse_single_target, Target};
+
+/// Word-wrap text to fit within a given width, breaking on word boundaries.
+fn wrap_text(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current_line = String::new();
+
+    for word in text.split_whitespace() {
+        if current_line.is_empty() {
+            current_line = word.to_string();
+        } else if current_line.len() + 1 + word.len() > width {
+            lines.push(current_line);
+            current_line = word.to_string();
+        } else {
+            current_line.push(' ');
+            current_line.push_str(word);
+        }
+    }
+    if !current_line.is_empty() {
+        lines.push(current_line);
+    }
+    lines
+}
 
 fn print_scan_summary(results: &Scan) {
     println!();
@@ -46,6 +69,7 @@ fn print_scan_summary(results: &Scan) {
                 handshake_pqc,
                 handshake_classical,
                 downgrade_check,
+                hndl_assessment,
                 ..
             } => {
                 println!("  ┌─ {} (TLS)", targetspec);
@@ -123,7 +147,47 @@ fn print_scan_summary(results: &Scan) {
                     if dc.classical_fallback_works {
                         println!("  │    ✅ Classical fallback available");
                     }
-                    println!("  │    {}", dc.details);
+                    for line in wrap_text(&dc.details, 58) {
+                        println!("  │    {}", line);
+                    }
+                }
+
+                if let Some(hndl) = hndl_assessment {
+                    println!("  │");
+                    let risk_icon = match hndl.risk_level {
+                        crate::hndl::HndlSeverity::Critical => "🔴",
+                        crate::hndl::HndlSeverity::High => "🟠",
+                        crate::hndl::HndlSeverity::Medium => "🟡",
+                        crate::hndl::HndlSeverity::Low => "🟢",
+                        crate::hndl::HndlSeverity::Info => "✅",
+                    };
+                    println!(
+                        "  │  HNDL Risk:      {} {}",
+                        risk_icon, hndl.risk_level
+                    );
+                    if hndl.quantum_vulnerable {
+                        println!(
+                            "  │  ⚠️  Traffic captured today is decryptable post-quantum"
+                        );
+                    }
+                    println!("  │");
+                    for (i, finding) in hndl.findings.iter().enumerate() {
+                        if i > 0 {
+                            println!("  │");
+                        }
+                        let icon = match finding.severity {
+                            crate::hndl::HndlSeverity::Critical => "🔴",
+                            crate::hndl::HndlSeverity::High => "🟠",
+                            crate::hndl::HndlSeverity::Medium => "🟡",
+                            crate::hndl::HndlSeverity::Low => "🟢",
+                            crate::hndl::HndlSeverity::Info => "ℹ️ ",
+                        };
+                        println!("  │    {} {}", icon, finding.category);
+                        // Word-wrap the detail text at ~58 chars per line
+                        for line in wrap_text(&finding.detail, 58) {
+                            println!("  │      {}", line);
+                        }
+                    }
                 }
 
                 println!("  └────────────────────────────────────────");
