@@ -14,13 +14,11 @@ pub struct Config {
 
 impl Config {
     pub fn new() -> Config {
-        let cfg = Config {
+        Config {
             ssh_config: SshConfig::new(),
             tls_config: TlsConfig::new(),
             connection_timeout: 5,
             read_timeout: 10,
-        };
-
-        return cfg;
+        }
     }
 }

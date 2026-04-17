@@ -5,7 +5,6 @@ use env_logger::Env;
 use rust_embed::RustEmbed;
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap};
-use std::convert::From;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter};
 use std::path::PathBuf;
@@ -269,7 +268,7 @@ struct ScanWindow {
     scan_type: ScanType,
 }
 
-fn create_report(output_file: &str, input_files: &Vec<&String>) -> Result<()> {
+fn create_report(output_file: &str, input_files: &[&String]) -> Result<()> {
     log::debug!("Initializing report data structures");
     let mut tls_map: HashMap<String, Vec<ScanResult>> = HashMap::new();
     let mut ssh_map: HashMap<String, Vec<ScanResult>> = HashMap::new();
@@ -383,17 +382,17 @@ fn create_report(output_file: &str, input_files: &Vec<&String>) -> Result<()> {
     let results: ReportResults = ReportResults {
         tls_results: tls_map,
         tls_sorted_hosts: tls_hosts,
-        tls_success_count: tls_success_count,
-        tls_pqc_supported_count: tls_pqc_supported_count,
-        tls_fail_count: tls_fail_count,
-        tls_total_count: tls_total_count,
+        tls_success_count,
+        tls_pqc_supported_count,
+        tls_fail_count,
+        tls_total_count,
         ssh_results: ssh_map,
         ssh_sorted_hosts: ssh_hosts,
-        ssh_success_count: ssh_success_count,
-        ssh_fail_count: ssh_fail_count,
-        ssh_pqc_supported_count: ssh_pqc_supported_count,
-        ssh_total_count: ssh_total_count,
-        scan_windows: scan_windows,
+        ssh_success_count,
+        ssh_fail_count,
+        ssh_pqc_supported_count,
+        ssh_total_count,
+        scan_windows,
     };
 
     let templates = [

@@ -116,22 +116,19 @@ impl TlsConfig {
     fn load_groups() -> HashMap<String, TlsGroup> {
         let json_file = EmbeddedResources::get("tls_groups.json").unwrap();
         let json_data = std::str::from_utf8(json_file.data.as_ref()).unwrap();
-        let groups = serde_json::from_str(&json_data).unwrap();
-        return groups;
+        serde_json::from_str(json_data).unwrap()
     }
 
     fn load_cipher_suites() -> HashMap<String, TlsCipherSuite> {
         let json_file = EmbeddedResources::get("tls_cipher_suites.json").unwrap();
         let json_data = std::str::from_utf8(json_file.data.as_ref()).unwrap();
-        let cipher_suites = serde_json::from_str(&json_data).unwrap();
-        return cipher_suites;
+        serde_json::from_str(json_data).unwrap()
     }
 
     fn load_sig_schemes() -> HashMap<String, TlsSigScheme> {
         let json_file = EmbeddedResources::get("tls_sig_schemes.json").unwrap();
         let json_data = std::str::from_utf8(json_file.data.as_ref()).unwrap();
-        let sig_schemes = serde_json::from_str(&json_data).unwrap();
-        return sig_schemes;
+        serde_json::from_str(json_data).unwrap()
     }
 
     pub fn group_name_by_id(&self, id: u16) -> Option<String> {
@@ -150,10 +147,11 @@ impl TlsConfig {
 impl KeyShareEntry {
     #![allow(dead_code)]
     pub fn new(group: u16, exchange: Vec<u8>) -> KeyShareEntry {
+        let exchange_len = exchange.len() as u16;
         KeyShareEntry {
-            group: group,
-            exchange_len: exchange.len() as u16,
-            exchange: exchange,
+            group,
+            exchange_len,
+            exchange,
         }
     }
 }
@@ -168,7 +166,7 @@ impl Extension {
         buf.write_u16::<NetworkEndian>(hblen + 3)?;
         buf.write_u8(0)?;
         buf.write_u16::<NetworkEndian>(hblen)?;
-        buf.write(&hb)?;
+        buf.write_all(hb)?;
 
         Ok(Extension {
             ext_type: 0,
@@ -294,7 +292,7 @@ impl Extension {
         })
     }
 
-    fn key_share(keyshares: &Vec<KeyShareEntry>) -> Result<Extension> {
+    fn key_share(keyshares: &[KeyShareEntry]) -> Result<Extension> {
         let mut buf: Vec<u8> = vec![];
 
         let mut keyshare_len: u16 = 0;
@@ -306,7 +304,7 @@ impl Extension {
         for keyshare in keyshares {
             buf.write_u16::<NetworkEndian>(keyshare.group)?;
             buf.write_u16::<NetworkEndian>(keyshare.exchange_len)?;
-            buf.write(&keyshare.exchange)?;
+            buf.write_all(&keyshare.exchange)?;
         }
 
         Ok(Extension {
@@ -327,8 +325,6 @@ pub struct ClientHelloBuilder {
     extensions: Vec<Extension>,
 }
 
-
-
 impl ClientHelloBuilder {
     fn new() -> ClientHelloBuilder {
         let mut random: [u8; 32] = [0; 32];
@@ -345,12 +341,12 @@ impl ClientHelloBuilder {
 
         ClientHelloBuilder {
             legacy_version: 0x0303,
-            random: random,
+            random,
             session_id: session_id.to_vec(),
-            cipher_suites: Vec::<u16>::new(),
-            compression_methods: Vec::<u8>::new(),
+            cipher_suites: Vec::new(),
+            compression_methods: Vec::new(),
             extensions_len: 0,
-            extensions: Vec::<Extension>::new(),
+            extensions: Vec::new(),
         }
     }
 
@@ -358,9 +354,9 @@ impl ClientHelloBuilder {
         let mut buf: Vec<u8> = vec![];
 
         buf.write_u16::<NetworkEndian>(self.legacy_version)?;
-        buf.write(&self.random)?;
+        buf.write_all(&self.random)?;
         buf.write_u8(self.session_id.len().try_into()?)?;
-        buf.write(&self.session_id)?;
+        buf.write_all(&self.session_id)?;
 
         let cslen: u16 = (self.cipher_suites.len() * 2).try_into()?;
         buf.write_u16::<NetworkEndian>(cslen)?;
@@ -377,15 +373,10 @@ impl ClientHelloBuilder {
         for ext in &self.extensions {
             buf.write_u16::<NetworkEndian>(ext.ext_type)?;
             buf.write_u16::<NetworkEndian>(ext.ext_len)?;
-            buf.write(&ext.payload)?;
+            buf.write_all(&ext.payload)?;
         }
 
         let buflen: u16 = buf.len().try_into()?;
-
-        /* now setup the record layer header */
-
-        // XXX: this is another copy of the Vec, maybe we can use a slice
-        // above or otherwise a Cursor to not have to do this copy
 
         let mut preamble: Vec<u8> = vec![];
         preamble.write_u8(22)?;
@@ -394,9 +385,9 @@ impl ClientHelloBuilder {
         preamble.write_u8(1)?; /* Client Hello */
         preamble.write_u8(0)?;
         preamble.write_u16::<NetworkEndian>(buflen)?;
-        preamble.write(&buf)?;
+        preamble.write_all(&buf)?;
 
-        Ok(preamble.to_vec())
+        Ok(preamble)
     }
 
     fn add_extension(&mut self, extension: Extension) {
@@ -461,7 +452,7 @@ fn tls_connect_with_group(
     chb.add_extension(Extension::ec_point_formats()?);
 
     log::trace!("TLS: sending ClientHello");
-    stream.write(&chb.into_buf()?)?;
+    stream.write_all(&chb.into_buf()?)?;
     let mut buf: [u8; 16384] = [0; 16384];
 
     log::trace!("TLS: waiting for ServerHello");
@@ -770,11 +761,11 @@ pub async fn tls_scan_target(
         (None, None, None)
     };
 
-    let ret = ScanResult::Tls {
+    ScanResult::Tls {
         targetspec: target.clone(),
-        addr: addr,
+        addr,
         error: None,
-        pqc_supported: pqc_supported,
+        pqc_supported,
         pqc_algos: Some(pqc_algos),
         hybrid_algos: Some(hybrid_algos),
         nonpqc_algos: Some(nonpqc_algos),
@@ -785,6 +776,5 @@ pub async fn tls_scan_target(
         handshake_pqc,
         handshake_classical,
         downgrade_check,
-    };
-    return ret;
+    }
 }

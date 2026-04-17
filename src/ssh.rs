@@ -1,19 +1,17 @@
-#![allow(unused)]
+#![allow(unused_variables)]
 
-use crate::scan::{Scan, ScanResult};
+use crate::scan::ScanResult;
 use crate::utils::Target;
-use crate::Config;
+use crate::config::Config;
 use anyhow::{anyhow, Result};
 use byteorder::{BigEndian, ReadBytesExt};
-use chrono::prelude::*;
 use rust_embed::RustEmbed;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::io::{ErrorKind, Seek, SeekFrom};
-use std::net::ToSocketAddrs;
 use std::sync::Arc;
-use tokio::net::{TcpSocket, TcpStream};
+use tokio::net::TcpStream;
 
 use crate::utils::socket_create_and_connect;
 
@@ -26,9 +24,13 @@ struct EmbeddedResources;
 #[serde(deny_unknown_fields)]
 struct KexAlgo {
     pqc: bool,
+    #[allow(dead_code)]
     broken: bool,
+    #[allow(dead_code)]
     hybrid: Option<bool>,
+    #[allow(dead_code)]
     desc: Option<String>,
+    #[allow(dead_code)]
     href: Option<String>,
 }
 
@@ -49,22 +51,14 @@ impl SshConfig {
     fn load_kex_algos() -> HashMap<String, KexAlgo> {
         let json_file = EmbeddedResources::get("kex_algos.json").unwrap();
         let json_data = std::str::from_utf8(json_file.data.as_ref()).unwrap();
-        let kex_algos = serde_json::from_str(&json_data).unwrap();
-        return kex_algos;
+        serde_json::from_str(json_data).unwrap()
     }
 }
 
 struct KexInitMsg {
     kex_algos: Vec<String>,
+    #[allow(dead_code)]
     host_key_algos: Vec<String>,
-}
-
-fn find_pqs_algos(kex_algos: &Vec<String>, kexinit: &KexInitMsg) {
-    for kex_algo in &kexinit.kex_algos {
-        if kex_algos.contains(&kex_algo) {
-            log::debug!("Found PQC algorithm {}", kex_algo);
-        }
-    }
 }
 
 fn parse_ssh_name_list(c: &mut Cursor<&Vec<u8>>) -> Result<Vec<String>> {
@@ -326,13 +320,12 @@ pub async fn ssh_scan_target(config: &Arc<Config>, target: &Target) -> ScanResul
         target,
         pqc_supported
     );
-    let ret = ScanResult::Ssh {
+    ScanResult::Ssh {
         targetspec: target.clone(),
         addr: Some(addr.to_string()),
         error: None,
-        pqc_supported: pqc_supported,
+        pqc_supported,
         pqc_algos: Some(pqc_algos),
         nonpqc_algos: Some(nonpqc_algos),
-    };
-    return ret;
+    }
 }

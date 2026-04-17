@@ -177,8 +177,8 @@ pub async fn scan_runner(config: Arc<Config>, scan: ScanOptions) -> Scan {
     log::info!("Total scans completed: {}", completed_scans);
 
     let scan = Scan {
-        results: results,
-        start_time: start_time,
+        results,
+        start_time,
         end_time: Utc::now(),
         version: clap::crate_version!().to_string(),
         scan_type: scan.scan_type.unwrap(),
@@ -186,5 +186,5 @@ pub async fn scan_runner(config: Arc<Config>, scan: ScanOptions) -> Scan {
 
     log::info!("Done scanning. All threads exited.");
 
-    return scan;
+    scan
 }
