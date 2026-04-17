@@ -92,12 +92,35 @@ Example output:
 
 ```
 $ pqcscan tls-scan -t cloudflare.com:443 --validate-handshake
-[INFO  pqcscan::tls] TLS scan: cloudflare.com:443 sent HelloRetryRequest for group X25519MLKEM768
-[INFO  pqcscan::tls] TLS scan: cloudflare.com:443 negotiated cipher=TLS_AES_128_GCM_SHA256, group=X25519MLKEM768, version=0x0304
-[INFO  pqcscan::tls] TLS scan: cloudflare.com:443 supports hybrid PQC algorithm: X25519MLKEM768
-[INFO  pqcscan::handshake] PQC handshake completed for cloudflare.com:443 (cipher=TLS13_AES_256_GCM_SHA384, group=X25519MLKEM768)
-[INFO  pqcscan::handshake] classical handshake completed for cloudflare.com:443 (cipher=TLS13_AES_256_GCM_SHA384, group=X25519)
-[INFO  pqcscan::handshake] downgrade check — pqc_used=true, classical_fallback=true, potential_downgrade=false
+
+═══════════════════════════════════════════════════════════════
+  PQCscan Summary
+═══════════════════════════════════════════════════════════════
+
+  Scanned 1 target(s) in 0.47s
+
+  ┌─ cloudflare.com:443 (TLS)
+  │  PQC Support:    ✅ Yes
+  │  PQC Algorithms: X25519MLKEM768
+  │
+  │  Full Handshake (PQC-enabled):
+  │    Status:       ✅ Completed
+  │    Cipher Suite: TLS13_AES_256_GCM_SHA384
+  │    Key Exchange: X25519MLKEM768
+  │    TLS Version:  TLSv1_3
+  │
+  │  Full Handshake (Classical-only):
+  │    Status:       ✅ Completed
+  │    Key Exchange: X25519
+  │
+  │  Downgrade Assessment:
+  │    ✅ PQC negotiated when offered
+  │    ✅ Classical fallback available
+  │    Server negotiated PQC group (X25519MLKEM768) when offered.
+  │    Classical fallback also works (X25519).
+  └────────────────────────────────────────
+
+═══════════════════════════════════════════════════════════════
 ```
 
 ## Standard Usage
