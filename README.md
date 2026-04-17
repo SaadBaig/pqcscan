@@ -43,6 +43,20 @@ By comparing the results of both handshakes, the tool detects potential downgrad
 - **Classical fallback** — server gracefully falls back to classical groups when PQC is not offered
 - **Potential downgrade warning** — server chose a classical group even though PQC was offered, which may indicate a misconfiguration, an intermediary stripping PQC support, or a deliberate downgrade
 
+### Validated PQC Algorithms
+The tool validates ML-KEM key exchange across all NIST FIPS 203 variants:
+
+| Algorithm | Type | TLS Group ID |
+|---|---|---|
+| ML-KEM-512 | Standalone | 0x0200 (512) |
+| ML-KEM-768 | Standalone | 0x0201 (513) |
+| ML-KEM-1024 | Standalone | 0x0202 (514) |
+| X25519MLKEM768 | Hybrid (X25519 + ML-KEM-768) | 0x11EC (4588) |
+| SECP256R1MLKEM768 | Hybrid (P-256 + ML-KEM-768) | 0x11EB (4587) |
+| SECP384R1MLKEM1024 | Hybrid (P-384 + ML-KEM-1024) | 0x11ED (4589) |
+
+ML-DSA (FIPS 204) and SLH-DSA (FIPS 205) signature algorithms are not yet covered — no production TLS servers use PQC certificates today.
+
 ### New Dependencies
 This fork adds the following crates:
 - `rustls` (with `prefer-post-quantum` and `aws_lc_rs` features)
