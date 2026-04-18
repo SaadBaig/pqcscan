@@ -21,3 +21,4 @@ serde_json = "1.0.138"
 tera = "1.20.0"
 tokio = { version = "1.45.0", features = ["full"] }
 webpki-roots = "0.26"
+x509-parser = "0.16"

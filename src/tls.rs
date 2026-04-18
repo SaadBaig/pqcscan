@@ -568,6 +568,78 @@ fn tls_connect_with_group(
     }
 }
 
+/// Test if the server supports TLS_FALLBACK_SCSV (RFC 7507).
+/// Sends a TLS 1.2 ClientHello with the SCSV cipher suite value (0x5600).
+/// If the server supports TLS 1.3 and correctly implements SCSV, it should
+/// respond with an `inappropriate_fallback` alert (86).
+/// Returns: Some(true) = SCSV supported, Some(false) = SCSV not supported, None = error
+fn test_fallback_scsv(
+    target: &Target,
+    config: &Arc<Config>,
+) -> Option<bool> {
+    let ret = std::net::TcpStream::connect_timeout(
+        &match format!("{}:{}", target.host, target.port).parse() {
+            Ok(a) => a,
+            Err(_) => {
+                use std::net::ToSocketAddrs;
+                match format!("{}:{}", target.host, target.port).to_socket_addrs() {
+                    Ok(mut addrs) => addrs.next()?,
+                    Err(_) => return None,
+                }
+            }
+        },
+        std::time::Duration::from_secs(config.connection_timeout),
+    );
+    let mut stream = match ret {
+        Ok(s) => s,
+        Err(_) => return None,
+    };
+    stream.set_read_timeout(Some(Duration::from_secs(config.read_timeout))).ok();
+
+    // Build a TLS 1.2 ClientHello with TLS_FALLBACK_SCSV
+    let ciphers: Vec<u16> = config
+        .tls_config
+        .cipher_suites
+        .values()
+        .map(|cs| cs.cipher_suite_id)
+        .collect();
+
+    let mut chb = ClientHelloBuilder::new();
+    for cipher in ciphers {
+        chb.add_cipher_suite(cipher);
+    }
+    // Add TLS_FALLBACK_SCSV (0x5600)
+    chb.add_cipher_suite(0x5600);
+    chb.add_compression_method(0);
+    chb.add_extension(Extension::server_name(&target.host).ok()?);
+    // Offer TLS 1.2 only (no supported_versions extension = legacy behavior)
+    chb.add_extension(Extension::supported_groups(vec![29, 23]).ok()?); // X25519, P-256
+    chb.add_extension(Extension::signature_algorithms(vec![0x0401, 0x0501, 0x0601]).ok()?);
+    chb.add_extension(Extension::key_share(&[]).ok()?);
+
+    stream.write_all(&chb.into_buf().ok()?).ok()?;
+    let mut buf = [0u8; 16384];
+    let read = stream.read(&mut buf).ok()?;
+    if read < 7 {
+        return None;
+    }
+
+    let content_type = buf[0];
+    if content_type == 0x15 {
+        // Alert record
+        let level = buf[5];
+        let desc = buf[6];
+        if level == 0x02 && desc == 86 {
+            // inappropriate_fallback — SCSV is working
+            return Some(true);
+        }
+        // Some other alert — server rejected but not with SCSV
+        return Some(false);
+    }
+    // Server accepted the TLS 1.2 handshake without flagging SCSV
+    Some(false)
+}
+
 pub async fn tls_scan_target(
     config: &Arc<Config>,
     target: &Target,
@@ -635,6 +707,7 @@ pub async fn tls_scan_target(
                 handshake_tls12: None,
                 downgrade_check: None,
                 hndl_assessment: None,
+                scsv_supported: None,
             };
         }
         let (_addr, stream) = ret.unwrap();
@@ -756,45 +829,73 @@ pub async fn tls_scan_target(
         pqc_supported
     );
 
-    // Run full handshake validation if requested
+    // Run full handshake validation if requested (on a blocking thread to avoid
+    // starving the tokio async runtime with synchronous TLS I/O)
     let (handshake_pqc, handshake_classical, handshake_tls12, downgrade_check, hndl_assessment) =
         if validate_handshake_flag {
-            let (pqc, classical, tls12, downgrade) =
-                handshake::validate_handshake(config, target);
+            let config_clone = config.clone();
+            let target_clone = target.clone();
+            let pqc_supported_val = pqc_supported;
 
-            // Run HNDL risk assessment with all collected data
-            let hndl_input = hndl::HndlInput {
-                pqc_supported,
-                handshake_pqc: Some(&pqc),
-                handshake_classical: Some(&classical),
-                handshake_tls12: Some(&tls12),
-                downgrade_check: Some(&downgrade),
-                cert_key_type: pqc
-                    .peer_certificate_sig_algo
-                    .as_deref()
-                    .or(classical.peer_certificate_sig_algo.as_deref()),
-                cert_key_bits: None, // TODO: extract from certificate DER
-                cert_validity_days: None, // TODO: extract from certificate DER
-            };
-            let assessment = hndl::assess_hndl_risk(&hndl_input);
+            let result = tokio::task::block_in_place(move || {
+                let (pqc, classical, tls12, downgrade) =
+                    handshake::validate_handshake(&config_clone, &target_clone);
 
-            log::info!(
-                "HNDL assessment for {}: {} — {}",
-                target,
-                assessment.risk_level,
-                assessment.summary
-            );
+                let hndl_input = hndl::HndlInput {
+                    pqc_supported: pqc_supported_val,
+                    handshake_pqc: Some(&pqc),
+                    handshake_classical: Some(&classical),
+                    handshake_tls12: Some(&tls12),
+                    downgrade_check: Some(&downgrade),
+                    cert_key_type: pqc
+                        .peer_certificate_key_type
+                        .as_deref()
+                        .or(classical.peer_certificate_key_type.as_deref()),
+                    cert_key_bits: pqc
+                        .peer_certificate_key_bits
+                        .or(classical.peer_certificate_key_bits),
+                    cert_validity_days: pqc
+                        .peer_certificate_validity_days
+                        .or(classical.peer_certificate_validity_days),
+                };
+                let assessment = hndl::assess_hndl_risk(&hndl_input);
+
+                log::info!(
+                    "HNDL assessment for {}: {} — {}",
+                    target_clone,
+                    assessment.risk_level,
+                    assessment.summary
+                );
+
+                (pqc, classical, tls12, downgrade, assessment)
+            });
 
             (
-                Some(pqc),
-                Some(classical),
-                Some(tls12),
-                Some(downgrade),
-                Some(assessment),
+                Some(result.0),
+                Some(result.1),
+                Some(result.2),
+                Some(result.3),
+                Some(result.4),
             )
         } else {
             (None, None, None, None, None)
         };
+
+    // Test SCSV fallback signaling if handshake validation is enabled
+    let scsv_supported = if validate_handshake_flag {
+        let result = tokio::task::block_in_place(|| test_fallback_scsv(target, config));
+        if let Some(supported) = result {
+            log::info!(
+                "SCSV fallback test for {}: {}",
+                target,
+                if supported { "supported (inappropriate_fallback alert received)" }
+                else { "NOT supported (server did not send inappropriate_fallback)" }
+            );
+        }
+        result
+    } else {
+        None
+    };
 
     ScanResult::Tls {
         targetspec: target.clone(),
@@ -813,5 +914,6 @@ pub async fn tls_scan_target(
         handshake_tls12,
         downgrade_check,
         hndl_assessment,
+        scsv_supported,
     }
 }

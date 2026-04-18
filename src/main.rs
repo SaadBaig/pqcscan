@@ -20,13 +20,15 @@ mod ssh;
 mod tls;
 mod tlsconstants;
 mod utils;
+#[cfg(test)]
+mod tests;
 
 use crate::config::Config;
 use crate::scan::{scan_runner, Scan, ScanOptions, ScanResult, ScanType};
 use crate::utils::{parse_single_target, Target};
 
 /// Word-wrap text to fit within a given width, breaking on word boundaries.
-fn wrap_text(text: &str, width: usize) -> Vec<String> {
+pub(crate) fn wrap_text(text: &str, width: usize) -> Vec<String> {
     let mut lines = Vec::new();
     let mut current_line = String::new();
 
@@ -198,6 +200,7 @@ fn print_scan_summary(results: &Scan) {
                 error,
                 pqc_supported,
                 pqc_algos,
+                hndl_assessment,
                 ..
             } => {
                 println!("  ┌─ {} (SSH)", targetspec);
@@ -218,6 +221,38 @@ fn print_scan_summary(results: &Scan) {
                     }
                 } else {
                     println!("  │  PQC Support:    ❌ No");
+                }
+
+                if let Some(hndl) = hndl_assessment {
+                    println!("  │");
+                    let risk_icon = match hndl.risk_level {
+                        crate::hndl::HndlSeverity::Critical => "🔴",
+                        crate::hndl::HndlSeverity::High => "🟠",
+                        crate::hndl::HndlSeverity::Medium => "🟡",
+                        crate::hndl::HndlSeverity::Low => "🟢",
+                        crate::hndl::HndlSeverity::Info => "✅",
+                    };
+                    println!("  │  HNDL Risk:      {} {}", risk_icon, hndl.risk_level);
+                    if hndl.quantum_vulnerable {
+                        println!("  │  ⚠️  Traffic captured today is decryptable post-quantum");
+                    }
+                    println!("  │");
+                    for (i, finding) in hndl.findings.iter().enumerate() {
+                        if i > 0 {
+                            println!("  │");
+                        }
+                        let icon = match finding.severity {
+                            crate::hndl::HndlSeverity::Critical => "🔴",
+                            crate::hndl::HndlSeverity::High => "🟠",
+                            crate::hndl::HndlSeverity::Medium => "🟡",
+                            crate::hndl::HndlSeverity::Low => "🟢",
+                            crate::hndl::HndlSeverity::Info => "ℹ️ ",
+                        };
+                        println!("  │    {} {}", icon, finding.category);
+                        for line in wrap_text(&finding.detail, 58) {
+                            println!("  │      {}", line);
+                        }
+                    }
                 }
 
                 println!("  └────────────────────────────────────────");
@@ -415,7 +450,8 @@ fn create_report(output_file: &str, input_files: &[&String]) -> Result<()> {
                     m.push(result);
                 }
                 _ => {
-                    panic!("Unexpected result type");
+                    log::warn!("Skipping unexpected result type in report input");
+                    continue;
                 }
             }
         }
@@ -490,6 +526,65 @@ fn create_report(output_file: &str, input_files: &[&String]) -> Result<()> {
     Ok(())
 }
 
+fn write_csv(path: &str, scan: &Scan) -> Result<()> {
+    use std::io::Write;
+    let f = File::create(path)?;
+    let mut w = BufWriter::new(f);
+
+    writeln!(w, "host,port,protocol,pqc_supported,pqc_algorithms,negotiated_group,negotiated_cipher,tls12_fallback,hndl_risk,scsv_supported,cert_key_type,cert_key_bits,cert_validity_days")?;
+
+    for result in &scan.results {
+        match result {
+            ScanResult::Tls {
+                targetspec, pqc_supported, pqc_algos, hybrid_algos,
+                negotiated_group, negotiated_cipher_suite,
+                handshake_tls12, hndl_assessment, scsv_supported, handshake_pqc, ..
+            } => {
+                let mut algos = Vec::new();
+                if let Some(p) = pqc_algos { algos.extend(p.iter().cloned()); }
+                if let Some(h) = hybrid_algos { algos.extend(h.iter().cloned()); }
+                algos.sort();
+
+                let tls12 = handshake_tls12.as_ref().map(|h| h.completed).unwrap_or(false);
+                let hndl = hndl_assessment.as_ref().map(|h| format!("{}", h.risk_level)).unwrap_or_default();
+                let scsv = scsv_supported.map(|s| s.to_string()).unwrap_or_default();
+
+                let (kt, kb, vd) = handshake_pqc.as_ref().map(|h| {
+                    (
+                        h.peer_certificate_key_type.clone().unwrap_or_default(),
+                        h.peer_certificate_key_bits.map(|b| b.to_string()).unwrap_or_default(),
+                        h.peer_certificate_validity_days.map(|d| d.to_string()).unwrap_or_default(),
+                    )
+                }).unwrap_or_default();
+
+                writeln!(w, "{},{},TLS,{},{},{},{},{},{},{},{},{},{}",
+                    targetspec.host, targetspec.port, pqc_supported,
+                    algos.join(";"),
+                    negotiated_group.as_deref().unwrap_or(""),
+                    negotiated_cipher_suite.as_deref().unwrap_or(""),
+                    tls12, hndl, scsv, kt, kb, vd,
+                )?;
+            }
+            ScanResult::Ssh {
+                targetspec, pqc_supported, pqc_algos, hndl_assessment, ..
+            } => {
+                let algos = pqc_algos.as_ref().map(|a| {
+                    let mut s = a.clone(); s.sort(); s.join(";")
+                }).unwrap_or_default();
+                let hndl = hndl_assessment.as_ref().map(|h| format!("{}", h.risk_level)).unwrap_or_default();
+
+                writeln!(w, "{},{},SSH,{},{},,,,,{},,,",
+                    targetspec.host, targetspec.port, pqc_supported, algos, hndl,
+                )?;
+            }
+            ScanResult::Done => {}
+        }
+    }
+
+    log::info!("CSV results written to {}", path);
+    Ok(())
+}
+
 fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
@@ -542,6 +637,12 @@ fn main() -> Result<()> {
                         .required(false)
                         .action(ArgAction::SetTrue)
                         .help("Perform full TLS handshake validation with PQC and classical configs to detect downgrade attacks"),
+                    Arg::new("csv")
+                        .long("csv")
+                        .value_name("FILE")
+                        .required(false)
+                        .action(ArgAction::Set)
+                        .help("Write results to a CSV file (one row per target)"),
                 ])
                 .disable_help_flag(true)
                 .disable_version_flag(true),
@@ -581,6 +682,7 @@ fn main() -> Result<()> {
     };
 
     let mut output_json_file: Option<&String> = None;
+    let mut output_csv_file: Option<&String> = None;
 
     match matches.subcommand() {
         Some(("tls-scan", sub_matches)) => {
@@ -605,6 +707,7 @@ fn main() -> Result<()> {
             scan.num_threads = *sub_matches.get_one::<usize>("num-threads").unwrap();
             log::info!("Using {} thread(s)", scan.num_threads);
             output_json_file = sub_matches.get_one::<String>("output");
+            output_csv_file = sub_matches.get_one::<String>("csv");
         }
         Some(("ssh-scan", sub_matches)) => {
             log::info!("Starting SSH scan");
@@ -658,6 +761,11 @@ fn main() -> Result<()> {
             let mut writer = BufWriter::new(f);
             serde_json::to_writer_pretty(&mut writer, &results)?;
             log::info!("Results written successfully");
+        }
+
+        /* write CSV output if requested */
+        if let Some(csv_file) = output_csv_file {
+            write_csv(csv_file, &results)?;
         }
     }
 

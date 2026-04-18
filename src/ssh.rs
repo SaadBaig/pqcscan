@@ -1,5 +1,6 @@
 #![allow(unused_variables)]
 
+use crate::hndl;
 use crate::scan::ScanResult;
 use crate::utils::Target;
 use crate::config::Config;
@@ -253,6 +254,7 @@ pub async fn ssh_scan_target(config: &Arc<Config>, target: &Target) -> ScanResul
             pqc_supported: false,
             pqc_algos: None,
             nonpqc_algos: None,
+            hndl_assessment: None,
         };
     }
     let (addr, stream) = ret.unwrap();
@@ -275,6 +277,7 @@ pub async fn ssh_scan_target(config: &Arc<Config>, target: &Target) -> ScanResul
                 pqc_supported: false,
                 pqc_algos: None,
                 nonpqc_algos: None,
+                hndl_assessment: None,
             };
         }
     }
@@ -320,6 +323,12 @@ pub async fn ssh_scan_target(config: &Arc<Config>, target: &Target) -> ScanResul
         target,
         pqc_supported
     );
+    let assessment = hndl::assess_ssh_hndl_risk(pqc_supported, &pqc_algos, &nonpqc_algos);
+    log::info!(
+        "SSH HNDL assessment for {}: {} — {}",
+        target, assessment.risk_level, assessment.summary
+    );
+
     ScanResult::Ssh {
         targetspec: target.clone(),
         addr: Some(addr.to_string()),
@@ -327,5 +336,6 @@ pub async fn ssh_scan_target(config: &Arc<Config>, target: &Target) -> ScanResul
         pqc_supported,
         pqc_algos: Some(pqc_algos),
         nonpqc_algos: Some(nonpqc_algos),
+        hndl_assessment: Some(assessment),
     }
 }

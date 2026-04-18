@@ -18,6 +18,7 @@ pub enum ScanResult {
         pqc_supported: bool,
         pqc_algos: Option<Vec<String>>,
         nonpqc_algos: Option<Vec<String>>,
+        hndl_assessment: Option<HndlAssessment>,
     },
     Tls {
         targetspec: Target,
@@ -36,6 +37,7 @@ pub enum ScanResult {
         handshake_tls12: Option<HandshakeValidation>,
         downgrade_check: Option<DowngradeCheck>,
         hndl_assessment: Option<HndlAssessment>,
+        scsv_supported: Option<bool>,
     },
     Done,
 }

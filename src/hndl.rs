@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::handshake::{DowngradeCheck, HandshakeValidation};
+use crate::handshake::{self, DowngradeCheck, HandshakeValidation};
 
 /// Individual risk finding from HNDL analysis.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -93,6 +93,86 @@ pub fn assess_hndl_risk(input: &HndlInput) -> HndlAssessment {
     }
 }
 
+/// Run HNDL risk assessment for an SSH target based on advertised KEX algorithms.
+pub fn assess_ssh_hndl_risk(pqc_supported: bool, pqc_algos: &[String], nonpqc_algos: &[String]) -> HndlAssessment {
+    let mut findings = Vec::new();
+
+    if !pqc_supported {
+        findings.push(HndlFinding {
+            severity: HndlSeverity::Critical,
+            category: "No PQC Key Exchange".to_string(),
+            detail: "SSH server does not advertise any post-quantum KEX algorithms. \
+                     All captured SSH sessions can be decrypted by a quantum-capable \
+                     adversary with a recording of the traffic."
+                .to_string(),
+        });
+    } else {
+        let hybrid = pqc_algos.iter().any(|a| a.contains("sntrup") || a.contains("x25519"));
+        if hybrid {
+            findings.push(HndlFinding {
+                severity: HndlSeverity::Info,
+                category: "PQC KEX Advertised (Hybrid)".to_string(),
+                detail: format!(
+                    "SSH server advertises hybrid PQC KEX: {}. Sessions using these \
+                     algorithms are quantum-resistant.",
+                    pqc_algos.join(", ")
+                ),
+            });
+        } else {
+            findings.push(HndlFinding {
+                severity: HndlSeverity::Info,
+                category: "PQC KEX Advertised".to_string(),
+                detail: format!(
+                    "SSH server advertises PQC KEX: {}.",
+                    pqc_algos.join(", ")
+                ),
+            });
+        }
+    }
+
+    // Check if classical-only KEX algorithms are also present (fallback risk)
+    if pqc_supported && !nonpqc_algos.is_empty() {
+        let has_weak = nonpqc_algos.iter().any(|a| {
+            a.contains("diffie-hellman-group14") || a.contains("diffie-hellman-group1")
+        });
+        if has_weak {
+            findings.push(HndlFinding {
+                severity: HndlSeverity::High,
+                category: "Weak Classical KEX Available".to_string(),
+                detail: "SSH server also advertises weak classical KEX algorithms \
+                         (e.g. diffie-hellman-group14). A downgrade attack could force \
+                         sessions to use quantum-vulnerable key exchange."
+                    .to_string(),
+            });
+        } else {
+            findings.push(HndlFinding {
+                severity: HndlSeverity::Medium,
+                category: "Classical KEX Fallback Available".to_string(),
+                detail: "SSH server advertises both PQC and classical KEX algorithms. \
+                         Classical algorithms are quantum-vulnerable but provide \
+                         backward compatibility."
+                    .to_string(),
+            });
+        }
+    }
+
+    let risk_level = findings
+        .iter()
+        .map(|f| f.severity.clone())
+        .max()
+        .unwrap_or(HndlSeverity::Info);
+
+    let quantum_vulnerable = risk_level >= HndlSeverity::High;
+    let summary = build_summary(&risk_level, &findings);
+
+    HndlAssessment {
+        risk_level,
+        quantum_vulnerable,
+        findings,
+        summary,
+    }
+}
+
 /// Check 1: Is PQC key exchange negotiated?
 fn check_pqc_key_exchange(input: &HndlInput, findings: &mut Vec<HndlFinding>) {
     if !input.pqc_supported {
@@ -110,8 +190,7 @@ fn check_pqc_key_exchange(input: &HndlInput, findings: &mut Vec<HndlFinding>) {
     if let Some(pqc_hs) = input.handshake_pqc {
         if pqc_hs.completed {
             let group = pqc_hs.negotiated_group.as_deref().unwrap_or("");
-            let g_upper = group.to_uppercase();
-            if g_upper.contains("MLKEM") || g_upper.contains("ML_KEM") || g_upper.contains("KYBER")
+            if handshake::is_pqc_group(group)
             {
                 findings.push(HndlFinding {
                     severity: HndlSeverity::Info,

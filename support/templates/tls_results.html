@@ -162,6 +162,33 @@
                     </tr>
                     {% endif %}
                     {% endif %}
+                    {% if result['handshake_tls12'] %}
+                    <tr>
+                        <th width="100%" colspan="2" class="text-center"><strong>TLS 1.2 Fallback Probe</strong></th>
+                    </tr>
+                    <tr>
+                        <th width="20%">TLS 1.2 Accepted</th>
+                        <td>{% if result['handshake_tls12']['completed'] %}<span class="text-warning">Yes — legacy fallback available</span>{% else %}<span class="text-success">No — TLS 1.2 rejected</span>{% endif %}</td>
+                    </tr>
+                    {% if result['handshake_tls12']['negotiated_cipher_suite'] %}
+                    <tr>
+                        <th width="20%">Cipher Suite</th>
+                        <td>{{ result['handshake_tls12']['negotiated_cipher_suite'] }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if result['handshake_tls12']['negotiated_version'] %}
+                    <tr>
+                        <th width="20%">Protocol Version</th>
+                        <td>{{ result['handshake_tls12']['negotiated_version'] }}</td>
+                    </tr>
+                    {% endif %}
+                    {% if result['handshake_tls12']['handshake_error'] %}
+                    <tr>
+                        <th width="20%">Error</th>
+                        <td>{{ result['handshake_tls12']['handshake_error'] }}</td>
+                    </tr>
+                    {% endif %}
+                    {% endif %}
                     {% if result['downgrade_check'] %}
                     <tr>
                         <th width="100%" colspan="2" class="text-center"><strong>Downgrade Detection</strong></th>
@@ -185,6 +212,47 @@
                         <td>{{ result['downgrade_check']['details'] }}</td>
                     </tr>
                     {% endif %}
+                    {% endif %}
+                    {% endif %}
+                    {% if result['hndl_assessment'] %}
+                    <tr>
+                        <th width="100%" colspan="2" class="text-center"><strong>Harvest Now, Decrypt Later (HNDL) Risk Assessment</strong></th>
+                    </tr>
+                    <tr>
+                        <th width="20%">Risk Level</th>
+                        <td>
+                            {% if result['hndl_assessment']['risk_level'] == "Critical" %}
+                                <span class="text-danger"><strong>🔴 CRITICAL</strong></span>
+                            {% elif result['hndl_assessment']['risk_level'] == "High" %}
+                                <span class="text-danger">🟠 HIGH</span>
+                            {% elif result['hndl_assessment']['risk_level'] == "Medium" %}
+                                <span class="text-warning">🟡 MEDIUM</span>
+                            {% elif result['hndl_assessment']['risk_level'] == "Low" %}
+                                <span class="text-success">🟢 LOW</span>
+                            {% else %}
+                                <span class="text-success">✅ INFO</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% if result['hndl_assessment']['quantum_vulnerable'] %}
+                    <tr>
+                        <th width="20%">Quantum Status</th>
+                        <td class="text-danger"><strong>⚠️ Traffic captured today is decryptable post-quantum</strong></td>
+                    </tr>
+                    {% endif %}
+                    {% for finding in result['hndl_assessment']['findings'] %}
+                    <tr>
+                        <th width="20%">
+                            {% if finding['severity'] == "Critical" %}🔴
+                            {% elif finding['severity'] == "High" %}🟠
+                            {% elif finding['severity'] == "Medium" %}🟡
+                            {% elif finding['severity'] == "Low" %}🟢
+                            {% else %}ℹ️{% endif %}
+                            {{ finding['category'] }}
+                        </th>
+                        <td>{{ finding['detail'] }}</td>
+                    </tr>
+                    {% endfor %}
                     {% endif %}
                     {% endif %}
                 </tbody>
