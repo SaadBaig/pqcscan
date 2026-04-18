@@ -4,6 +4,29 @@
 
 > **Fork note:** This fork extends [pqcscan](https://github.com/anvilsecure/pqcscan) by Anvil Secure with full TLS handshake validation, downgrade attack detection, HNDL risk assessment, SCSV fallback testing, and X.509 certificate analysis. It goes beyond checking what servers advertise to validating what they actually negotiate — and flags whether captured traffic is decryptable by a future quantum computer. Stick around till the end for a crash course on Rust's core security innovation and why it matters for security tooling.
 
+## Table of Contents
+
+- [Why This Matters](#why-this-matters)
+  - [Two Categories of Threat](#two-categories-of-threat)
+  - [The Downgrade Problem](#the-downgrade-problem)
+- [What pqcscan Does](#what-pqcscan-does)
+  - [Level 1: Advertisement Detection](#level-1-advertisement-detection-default)
+  - [Level 2: Full Handshake Validation](#level-2-full-handshake-validation---validate-handshake)
+  - [Level 3: Risk Assessment](#level-3-risk-assessment)
+- [Validated PQC Algorithms](#validated-pqc-algorithms)
+- [Real-World Findings](#real-world-findings)
+- [Installation](#installation)
+- [Usage](#usage)
+  - [Quick Scan](#quick-scan-advertisement-detection)
+  - [Full Handshake Validation with HNDL Assessment](#full-handshake-validation-with-hndl-assessment)
+  - [CSV Export](#csv-export)
+  - [Example Output](#example-output)
+  - [All Options](#all-options)
+- [How It Works](#how-it-works)
+- [Screenshots](#screenshots)
+- [Contributing](#contributing)
+- [A Crash Course on Rust's Core Security Innovation](#a-crash-course-on-rusts-core-security-innovation)
+
 ---
 
 # Why This Matters
