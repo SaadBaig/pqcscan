@@ -881,6 +881,52 @@ pub async fn tls_scan_target(
             (None, None, None, None, None)
         };
 
+    // Detect client fingerprinting: if raw scanner confirmed TLS 1.3 works
+    // but rustls handshakes failed with HandshakeFailure, the server is likely
+    // rejecting non-browser TLS clients.
+    let raw_confirmed_tls13 = last_negotiated_version.as_deref() == Some("0x0304");
+
+    let handshake_pqc = handshake_pqc.map(|mut hs| {
+        if !hs.completed && raw_confirmed_tls13 {
+            if let Some(ref err) = hs.handshake_error {
+                if err.contains("HandshakeFailure") {
+                    hs.handshake_error = Some(
+                        "Server supports TLS 1.3 (confirmed via probe) but rejected \
+                         our PQC-only handshake — likely client fingerprinting or \
+                         PQC groups not supported".to_string()
+                    );
+                }
+            }
+        }
+        hs
+    });
+
+    let handshake_classical = handshake_classical.map(|mut hs| {
+        if !hs.completed && raw_confirmed_tls13 {
+            if let Some(ref err) = hs.handshake_error {
+                if err.contains("HandshakeFailure") {
+                    hs.handshake_error = Some(
+                        "Server supports TLS 1.3 (confirmed via probe) but rejected \
+                         our classical handshake — likely client fingerprinting \
+                         blocking non-browser TLS clients".to_string()
+                    );
+                }
+            }
+        }
+        hs
+    });
+
+    // Override downgrade details if fingerprinting detected
+    let downgrade_check = downgrade_check.map(|mut dc| {
+        if raw_confirmed_tls13 && !dc.pqc_offered_and_used && !dc.classical_fallback_works {
+            dc.details = "Server supports TLS 1.3 (confirmed via raw probe) but \
+                         rejected full handshake attempts — likely due to TLS client \
+                         fingerprinting. PQC support status determined from raw probe only."
+                .to_string();
+        }
+        dc
+    });
+
     // Test SCSV fallback signaling if handshake validation is enabled
     let scsv_supported = if validate_handshake_flag {
         let result = tokio::task::block_in_place(|| test_fallback_scsv(target, config));

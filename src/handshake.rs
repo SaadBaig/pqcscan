@@ -118,21 +118,27 @@ fn build_client_config(
     provider: rustls::crypto::CryptoProvider,
     versions: &[&'static rustls::SupportedProtocolVersion],
 ) -> Result<Arc<ClientConfig>> {
-    let config = ClientConfig::builder_with_provider(Arc::new(provider))
+    let mut config = ClientConfig::builder_with_provider(Arc::new(provider))
         .with_protocol_versions(versions)
         .map_err(|e| anyhow!("Failed to configure TLS versions: {}", e))?
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(NoVerifier))
         .with_no_client_auth();
+    // Set ALPN protocols — some servers require this to accept TLS 1.3
+    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     Ok(Arc::new(config))
 }
 
-/// Build a ClientConfig with PQC key exchange (X25519MLKEM768) enabled.
+/// Build a ClientConfig offering ONLY PQC key exchange groups.
+/// No classical fallback — if the server doesn't support PQC, the handshake fails.
 fn build_pqc_client_config() -> Result<Arc<ClientConfig>> {
-    build_client_config(
-        rustls_post_quantum::provider(),
-        &[&rustls::version::TLS13],
-    )
+    let mut provider = rustls_post_quantum::provider();
+    // Remove all classical (non-PQC) groups so the server MUST negotiate PQC
+    provider.kx_groups.retain(|g| {
+        let name = format!("{:?}", g.name()).to_uppercase();
+        name.contains("MLKEM") || name.contains("ML_KEM") || name.contains("KYBER")
+    });
+    build_client_config(provider, &[&rustls::version::TLS13])
 }
 
 /// Build a ClientConfig with only classical (non-PQC) key exchange groups.
@@ -352,6 +358,9 @@ pub fn validate_handshake(
     let pqc_result = do_handshake(&pqc_config, target, config.connection_timeout);
     log_handshake_result("PQC", target, &pqc_result);
 
+    // Brief pause between probes to avoid triggering rate limiters
+    std::thread::sleep(Duration::from_millis(500));
+
     // Handshake 2: Classical-only
     log::info!("Handshake validation: starting classical-only handshake for {}", target);
 
@@ -415,6 +424,9 @@ pub fn validate_handshake(
         "Handshake validation: downgrade check for {} — pqc_used={}, classical_fallback={}, potential_downgrade={}",
         target, pqc_used, classical_works, potential_downgrade
     );
+
+    // Brief pause between probes to avoid triggering rate limiters
+    std::thread::sleep(Duration::from_millis(500));
 
     // Handshake 3: TLS 1.2 fallback probe
     log::info!("Handshake validation: starting TLS 1.2 fallback probe for {}", target);

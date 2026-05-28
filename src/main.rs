@@ -102,7 +102,7 @@ fn print_scan_summary(results: &Scan) {
 
                 if let Some(pqc_hs) = handshake_pqc {
                     println!("  │");
-                    println!("  │  Full Handshake (PQC-enabled):");
+                    println!("  │  Full Handshake (PQC-only):");
                     if pqc_hs.completed {
                         println!("  │    Status:       ✅ Completed");
                         if let Some(ref cs) = pqc_hs.negotiated_cipher_suite {
