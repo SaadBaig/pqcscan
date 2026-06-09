@@ -1,7 +1,5 @@
-# pqcscan - Post-Quantum Cryptography Scanner
-
 <p align="center">
-  <img src="images/pqcscan.jpg" alt="..." width="435">
+  <img src="images/pqcscan.jpg" alt="...">
 </p>
 
 
