@@ -27,28 +27,6 @@ use crate::config::Config;
 use crate::scan::{scan_runner, Scan, ScanOptions, ScanResult, ScanType};
 use crate::utils::{parse_single_target, Target};
 
-/// Word-wrap text to fit within a given width, breaking on word boundaries.
-pub(crate) fn wrap_text(text: &str, width: usize) -> Vec<String> {
-    let mut lines = Vec::new();
-    let mut current_line = String::new();
-
-    for word in text.split_whitespace() {
-        if current_line.is_empty() {
-            current_line = word.to_string();
-        } else if current_line.len() + 1 + word.len() > width {
-            lines.push(current_line);
-            current_line = word.to_string();
-        } else {
-            current_line.push(' ');
-            current_line.push_str(word);
-        }
-    }
-    if !current_line.is_empty() {
-        lines.push(current_line);
-    }
-    lines
-}
-
 fn print_scan_summary(results: &Scan) {
     println!();
     println!("═══════════════════════════════════════════════════════════════");
@@ -57,7 +35,17 @@ fn print_scan_summary(results: &Scan) {
     println!();
 
     let duration = (results.end_time - results.start_time).num_milliseconds() as f64 / 1000.0;
-    println!("  Scanned {} target(s) in {:.2}s", results.results.len(), duration);
+    if results.results.len() == 1 {
+        // Single target — show the domain name
+        let target_name = match &results.results[0] {
+            ScanResult::Tls { targetspec, .. } => format!("{}", targetspec),
+            ScanResult::Ssh { targetspec, .. } => format!("{}", targetspec),
+            _ => "1 target".to_string(),
+        };
+        println!("  Scanned {} in {:.2}s", target_name, duration);
+    } else {
+        println!("  Scanned {} target(s) in {:.2}s", results.results.len(), duration);
+    }
     println!();
 
     for result in &results.results {
@@ -70,8 +58,9 @@ fn print_scan_summary(results: &Scan) {
                 hybrid_algos,
                 handshake_pqc,
                 handshake_classical,
-                downgrade_check,
+                handshake_tls12,
                 hndl_assessment,
+                scsv_supported,
                 ..
             } => {
                 println!("  ┌─ {} (TLS)", targetspec);
@@ -83,79 +72,55 @@ fn print_scan_summary(results: &Scan) {
                     continue;
                 }
 
+                // PQC support
+                let mut algos = Vec::new();
+                if let Some(pqc) = pqc_algos { algos.extend(pqc.iter().cloned()); }
+                if let Some(hybrid) = hybrid_algos { algos.extend(hybrid.iter().cloned()); }
+                algos.sort();
+
                 if *pqc_supported {
-                    println!("  │  PQC Support:    ✅ Yes");
-                    let mut algos = Vec::new();
-                    if let Some(pqc) = pqc_algos {
-                        algos.extend(pqc.iter().cloned());
-                    }
-                    if let Some(hybrid) = hybrid_algos {
-                        algos.extend(hybrid.iter().cloned());
-                    }
-                    if !algos.is_empty() {
-                        algos.sort();
-                        println!("  │  PQC Algorithms: {}", algos.join(", "));
-                    }
+                    println!("  │  ✅ PQC Support:   Yes ({})", algos.join(", "));
                 } else {
-                    println!("  │  PQC Support:    ❌ No");
+                    println!("  │  ❌ PQC Support:   No");
                 }
 
-                if let Some(pqc_hs) = handshake_pqc {
+                // Handshake Validation section (only shown when --validate-handshake is used)
+                if handshake_pqc.is_some() || handshake_tls12.is_some() {
                     println!("  │");
-                    println!("  │  Full Handshake (PQC-only):");
-                    if pqc_hs.completed {
-                        println!("  │    Status:       ✅ Completed");
-                        if let Some(ref cs) = pqc_hs.negotiated_cipher_suite {
-                            println!("  │    Cipher Suite: {}", cs);
-                        }
-                        if let Some(ref g) = pqc_hs.negotiated_group {
-                            println!("  │    Key Exchange: {}", g);
-                        }
-                        if let Some(ref v) = pqc_hs.negotiated_version {
-                            println!("  │    TLS Version:  {}", v);
-                        }
-                    } else {
-                        println!("  │    Status:       ❌ Failed");
-                        if let Some(ref err) = pqc_hs.handshake_error {
-                            println!("  │    Error:        {}", err);
-                        }
-                    }
-                }
+                    println!("  │  ── Handshake Validation ──");
 
-                if let Some(classical_hs) = handshake_classical {
-                    println!("  │");
-                    println!("  │  Full Handshake (Classical-only):");
-                    if classical_hs.completed {
-                        println!("  │    Status:       ✅ Completed");
-                        if let Some(ref g) = classical_hs.negotiated_group {
-                            println!("  │    Key Exchange: {}", g);
-                        }
-                    } else {
-                        println!("  │    Status:       ❌ Failed");
-                        if let Some(ref err) = classical_hs.handshake_error {
-                            println!("  │    Error:        {}", err);
+                    // PQC-only handshake
+                    if let Some(pqc_hs) = handshake_pqc {
+                        if pqc_hs.completed {
+                            let group = pqc_hs.negotiated_group.as_deref().unwrap_or("-");
+                            println!("  │  ✅ PQC-only:     {} (TLS 1.3)", group);
+                        } else {
+                            println!("  │  ❌ PQC-only:     Failed");
                         }
                     }
-                }
 
-                if let Some(dc) = downgrade_check {
-                    println!("  │");
-                    println!("  │  Downgrade Assessment:");
-                    if dc.potential_downgrade {
-                        println!("  │    ⚠️  POTENTIAL DOWNGRADE DETECTED");
-                    } else if dc.pqc_offered_and_used {
-                        println!("  │    ✅ PQC negotiated when offered");
-                    }
-                    if dc.classical_fallback_works {
-                        println!("  │    ✅ Classical fallback available");
-                    }
-                    for line in wrap_text(&dc.details, 58) {
-                        println!("  │    {}", line);
-                    }
-                }
+                    // Classical handshake runs internally for cert/HNDL data but not shown
 
+                    // TLS 1.2 probe
+                    // Only show TLS 1.2 line when it's rejected (the rare positive finding)
+                    if let Some(tls12) = handshake_tls12 {
+                        if !tls12.completed {
+                            println!("  │  ✅ TLS 1.2:      Rejected (no downgrade path)");
+                        }
+                    }
+
+                    // SCSV
+                    if let Some(scsv) = scsv_supported {
+                        if *scsv {
+                            println!("  │  ✅ SCSV:         Supported");
+                        } else {
+                            println!("  │  ❌ SCSV:         Not supported");
+                        }
+                    }
+                } // end handshake validation section
+
+                // Risk Assessment section
                 if let Some(hndl) = hndl_assessment {
-                    println!("  │");
                     let risk_icon = match hndl.risk_level {
                         crate::hndl::HndlSeverity::Critical => "🔴",
                         crate::hndl::HndlSeverity::High => "🟠",
@@ -163,32 +128,61 @@ fn print_scan_summary(results: &Scan) {
                         crate::hndl::HndlSeverity::Low => "🟢",
                         crate::hndl::HndlSeverity::Info => "✅",
                     };
-                    println!(
-                        "  │  HNDL Risk:      {} {}",
-                        risk_icon, hndl.risk_level
-                    );
-                    if hndl.quantum_vulnerable {
-                        println!(
-                            "  │  ⚠️  Traffic captured today is decryptable post-quantum"
-                        );
-                    }
                     println!("  │");
-                    for (i, finding) in hndl.findings.iter().enumerate() {
-                        if i > 0 {
-                            println!("  │");
-                        }
-                        let icon = match finding.severity {
-                            crate::hndl::HndlSeverity::Critical => "🔴",
-                            crate::hndl::HndlSeverity::High => "🟠",
-                            crate::hndl::HndlSeverity::Medium => "🟡",
-                            crate::hndl::HndlSeverity::Low => "🟢",
-                            crate::hndl::HndlSeverity::Info => "ℹ️ ",
+                    println!("  │  ── Risk Assessment ({} {}) ──", risk_icon, hndl.risk_level);
+                    for finding in &hndl.findings {
+                        let bullet = match finding.category.as_str() {
+                            "PQC Key Exchange Active" => "PQC active on TLS 1.3 — sessions quantum-resistant".to_string(),
+                            "No PQC Key Exchange" => "No PQC — all traffic is quantum-decryptable".to_string(),
+                            "TLS 1.2 Fallback Available" => {
+                                let group = handshake_classical.as_ref()
+                                    .and_then(|h| h.negotiated_group.as_deref())
+                                    .unwrap_or("X25519");
+                                format!("Vulnerable key exchange algorithms: ECDHE (TLS 1.2), {} (TLS 1.3)", group)
+                            }
+                            "TLS 1.2 Static RSA Key Exchange" => "Vulnerable key exchange algorithms: static RSA (TLS 1.2) — no forward secrecy".to_string(),
+                            "TLS 1.2 Not Supported" => "TLS 1.2 rejected — no protocol downgrade path".to_string(),
+                            "Standard Classical Key Exchange" | "Strong Classical Key Exchange" | "Finite Field DH Key Exchange" => continue,
+                            "PQC Advertised But Not Negotiated" => "PQC advertised but classical chosen in practice".to_string(),
+                            "Downgrade Amplifies HNDL Risk" => "Downgrade possible — attacker can force classical".to_string(),
+                            "RSA-2048 Certificate" => {
+                                let hs = handshake_pqc.as_ref()
+                                    .filter(|h| h.completed)
+                                    .or(handshake_classical.as_ref().filter(|h| h.completed));
+                                let days = hs.and_then(|h| h.peer_certificate_validity_days)
+                                    .map(|d| format!(" ({} days)", d))
+                                    .unwrap_or_default();
+                                format!("Vulnerable certificate algorithms:  RSA-2048{}", days)
+                            }
+                            "RSA Certificate" => {
+                                let hs = handshake_pqc.as_ref()
+                                    .filter(|h| h.completed)
+                                    .or(handshake_classical.as_ref().filter(|h| h.completed));
+                                let days = hs.and_then(|h| h.peer_certificate_validity_days)
+                                    .map(|d| format!(" ({} days)", d))
+                                    .unwrap_or_default();
+                                format!("Vulnerable certificate algorithms:  RSA{}", days)
+                            }
+                            "ECDSA Certificate" => {
+                                let hs = handshake_pqc.as_ref()
+                                    .filter(|h| h.completed)
+                                    .or(handshake_classical.as_ref().filter(|h| h.completed));
+                                let days = hs.and_then(|h| h.peer_certificate_validity_days)
+                                    .map(|d| format!(" ({} days)", d))
+                                    .unwrap_or_default();
+                                let kt = hs.and_then(|h| h.peer_certificate_key_type.as_deref())
+                                    .unwrap_or("ECDSA");
+                                format!("Vulnerable certificate algorithms:  {}{}", kt, days)
+                            }
+                            "Long-Lived Certificate" | "Short-Lived Certificate" => continue,
+                            "Static RSA Key Exchange" => "Static RSA — no forward secrecy, all sessions decryptable".to_string(),
+                            _ => finding.category.clone(),
                         };
-                        println!("  │    {} {}", icon, finding.category);
-                        // Word-wrap the detail text at ~58 chars per line
-                        for line in wrap_text(&finding.detail, 58) {
-                            println!("  │      {}", line);
-                        }
+                        let icon = match finding.severity {
+                            crate::hndl::HndlSeverity::Info => "✅",
+                            _ => "⚠️ ",
+                        };
+                        println!("  │  {} {}", icon, bullet);
                     }
                 }
 
@@ -213,18 +207,14 @@ fn print_scan_summary(results: &Scan) {
                 }
 
                 if *pqc_supported {
-                    println!("  │  PQC Support:    ✅ Yes");
-                    if let Some(algos) = pqc_algos {
-                        let mut sorted = algos.clone();
-                        sorted.sort();
-                        println!("  │  PQC Algorithms: {}", sorted.join(", "));
-                    }
+                    let algos = pqc_algos.as_ref().map(|a| {
+                        let mut s = a.clone(); s.sort(); s.join(", ")
+                    }).unwrap_or_default();
+                    println!("  │  PQC Support:    ✅ Yes ({})", algos);
                 } else {
                     println!("  │  PQC Support:    ❌ No");
                 }
-
                 if let Some(hndl) = hndl_assessment {
-                    println!("  │");
                     let risk_icon = match hndl.risk_level {
                         crate::hndl::HndlSeverity::Critical => "🔴",
                         crate::hndl::HndlSeverity::High => "🟠",
@@ -233,28 +223,7 @@ fn print_scan_summary(results: &Scan) {
                         crate::hndl::HndlSeverity::Info => "✅",
                     };
                     println!("  │  HNDL Risk:      {} {}", risk_icon, hndl.risk_level);
-                    if hndl.quantum_vulnerable {
-                        println!("  │  ⚠️  Traffic captured today is decryptable post-quantum");
-                    }
-                    println!("  │");
-                    for (i, finding) in hndl.findings.iter().enumerate() {
-                        if i > 0 {
-                            println!("  │");
-                        }
-                        let icon = match finding.severity {
-                            crate::hndl::HndlSeverity::Critical => "🔴",
-                            crate::hndl::HndlSeverity::High => "🟠",
-                            crate::hndl::HndlSeverity::Medium => "🟡",
-                            crate::hndl::HndlSeverity::Low => "🟢",
-                            crate::hndl::HndlSeverity::Info => "ℹ️ ",
-                        };
-                        println!("  │    {} {}", icon, finding.category);
-                        for line in wrap_text(&finding.detail, 58) {
-                            println!("  │      {}", line);
-                        }
-                    }
                 }
-
                 println!("  └────────────────────────────────────────");
                 println!();
             }
