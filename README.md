@@ -161,7 +161,7 @@ cargo build --release
 
 ```bash
 # Scan a single TLS target
-pqcscan tls-scan -t cloudflare.com:443
+pqcscan tls-scan -t cloudflare.com
 
 # Scan a single SSH target
 pqcscan ssh-scan -t github.com:22
@@ -176,7 +176,7 @@ pqcscan create-report -i results.json -o report.html
 ## Full Handshake Validation with HNDL Assessment
 
 ```bash
-pqcscan tls-scan -t cloudflare.com:443 --validate-handshake
+pqcscan tls-scan -t cloudflare.com --validate-handshake
 ```
 
 This performs three real handshakes, tests SCSV fallback signaling, parses the server certificate, and produces an HNDL risk rating.
@@ -192,51 +192,25 @@ One row per target with columns: host, port, protocol, pqc_supported, pqc_algori
 ## Example Output
 
 ```
-$ pqcscan tls-scan -t cloudflare.com:443 --validate-handshake
+$ pqcscan tls-scan -t cloudflare.com --validate-handshake
 
 ═══════════════════════════════════════════════════════════════
   PQCscan Summary
 ═══════════════════════════════════════════════════════════════
 
-  Scanned 1 target(s) in 0.57s
+  Scanned cloudflare.com:443 in 5.05s
 
   ┌─ cloudflare.com:443 (TLS)
-  │  PQC Support:    ✅ Yes
-  │  PQC Algorithms: X25519MLKEM768
+  │  ✅ PQC Support:   Yes (X25519MLKEM768)
   │
-  │  Full Handshake (PQC-enabled):
-  │    Status:       ✅ Completed
-  │    Cipher Suite: TLS13_AES_256_GCM_SHA384
-  │    Key Exchange: X25519MLKEM768
-  │    TLS Version:  TLSv1_3
+  │  ── Handshake Validation ──
+  │  ✅ PQC-only:     X25519MLKEM768 (TLS 1.3)
+  │  ✅ SCSV:         Supported
   │
-  │  Full Handshake (Classical-only):
-  │    Status:       ✅ Completed
-  │    Key Exchange: X25519
-  │
-  │  Downgrade Assessment:
-  │    ✅ PQC negotiated when offered
-  │    ✅ Classical fallback available
-  │
-  │  HNDL Risk:      🟠 HIGH
-  │  ⚠️  Traffic captured today is decryptable post-quantum
-  │
-  │    ℹ️  PQC Key Exchange Active
-  │      Server negotiates PQC key exchange (X25519MLKEM768) —
-  │      TLS 1.3 sessions are quantum-resistant.
-  │
-  │    🟠 TLS 1.2 Fallback Available
-  │      Server accepts TLS 1.2 fallback. Classical DH/ECDH key
-  │      exchange is quantum-vulnerable. An attacker can downgrade
-  │      connections to TLS 1.2 and harvest traffic.
-  │
-  │    🟡 ECDSA Certificate
-  │      Server uses ECDSA-P-256 certificate. ECDSA is
-  │      quantum-vulnerable. Certificate authentication can be
-  │      forged post-quantum.
-  │
-  │    ℹ️  Short-Lived Certificate
-  │      Certificate validity period is 90 days.
+  │  ── Risk Assessment (🟠 HIGH) ──
+  │  ✅ PQC active on TLS 1.3 — sessions quantum-resistant
+  │  ⚠️  Vulnerable key exchange algorithms: ECDHE (TLS 1.2), X25519 (TLS 1.3)
+  │  ⚠️  Vulnerable certificate algorithms:  ECDSA-P-256 (90 days)
   └────────────────────────────────────────
 
 ═══════════════════════════════════════════════════════════════
@@ -245,7 +219,7 @@ $ pqcscan tls-scan -t cloudflare.com:443 --validate-handshake
 ## Verbose Logging
 
 ```bash
-RUST_LOG=debug pqcscan tls-scan -t example.com:443 --validate-handshake
+RUST_LOG=debug pqcscan tls-scan -t example.com --validate-handshake
 ```
 
 ## All Options
