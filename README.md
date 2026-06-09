@@ -109,31 +109,32 @@ ML-DSA (FIPS 204) and SLH-DSA (FIPS 205) signature algorithms are not yet covere
 
 # Real-World Findings
 
-Tested against 457 of the internet's top domains (April 2026):
+Tested against 411 domains across tech, finance, government, healthcare, energy, telecom, and defense sectors (June 2026):
 
 | Metric | Result |
 |---|---|
-| PQC key exchange supported | **53%** (242 of 449 successful scans) |
-| TLS 1.2 fallback accepted | **99.6%** (447 of 449) |
-| HNDL CRITICAL | 207 servers |
-| HNDL HIGH | 242 servers |
+| PQC key exchange supported | **38%** (156 of 405 successful scans) |
+| PQC among top 50 sites | **58%** (concentrated in major platforms) |
+| TLS 1.2 fallback accepted | **97%** (394 of 405) |
+| HNDL CRITICAL | 249 servers |
+| HNDL HIGH | 156 servers |
 | HNDL MEDIUM or lower | **0 servers** |
-| SCSV fallback supported | 283 (63%) |
-| RSA certificates | 220 (49%) |
-| ECDSA certificates | 166 (37%) |
-| Long-lived certs (>1 year) | 96 (21%) |
+| SCSV fallback supported | 251 (62%) |
+| RSA certificates | 89 (58% of parsed certs) |
+| ECDSA certificates | 65 (42% of parsed certs) |
+| Long-lived certs (>1 year) | 43 (10%) |
 
 ### Key takeaways
 
-**The good news:** Over half the internet's top sites now support PQC key exchange, primarily X25519MLKEM768. Google leads with standalone ML-KEM-1024 support. Cloudflare, Apple, Meta, Wikipedia, Reddit, Discord, and OpenAI all negotiate PQC when offered.
+**PQC adoption is concentrated at the top.** The internet's largest platforms — Google, Cloudflare, Apple, Meta, Wikipedia, Reddit, Discord, OpenAI, Twitch, Pinterest, Zoom — all negotiate PQC when offered, primarily X25519MLKEM768. Google leads with standalone ML-KEM-1024. But adoption drops sharply outside the top 50: only 38% of a broader 400+ domain sample supports PQC, revealing that smaller organizations and non-tech industries haven't migrated yet.
 
-**The bad news:** Not a single server scored below HIGH on the HNDL assessment. The reason: 99.6% still accept TLS 1.2 fallback. Even servers with perfect PQC on TLS 1.3 remain vulnerable to downgrade attacks that force connections back to quantum-breakable key exchange. As [Cloudflare's PQ roadmap](https://blog.cloudflare.com/post-quantum-roadmap/) emphasizes, "adding support for PQ cryptography is not enough — systems must disable support for quantum-vulnerable cryptography to be secure against downgrade attacks."
+**Not a single server scored below HIGH on the HNDL assessment.** The reason: 97% still accept TLS 1.2 fallback. Even servers with perfect PQC on TLS 1.3 remain vulnerable to downgrade attacks that force connections back to quantum-breakable key exchange. As [Cloudflare's PQ roadmap](https://blog.cloudflare.com/post-quantum-roadmap/) emphasizes, "adding support for PQ cryptography is not enough — systems must disable support for quantum-vulnerable cryptography to be secure against downgrade attacks."
 
-**Financial institutions are behind:** Chase, Wells Fargo, Barclays, Capital One, Citibank, and Morgan Stanley — all CRITICAL. No PQC, RSA-2048 certificates, and in several cases no SCSV fallback protection. These are exactly the "high-value targets" that Cloudflare warns will be prioritized by early quantum attackers: "long-lived keys that unlock substantial assets or persistent access."
+**Financial institutions are behind.** Chase, Wells Fargo, Barclays, Capital One, Citibank, and Morgan Stanley — all CRITICAL. No PQC, RSA-2048 certificates, and in several cases no SCSV fallback protection. Bank of America is the sole exception among top US banks, supporting both X25519MLKEM768 and SECP256R1MLKEM768. These are exactly the "high-value targets" that Cloudflare warns will be prioritized by early quantum attackers: "long-lived keys that unlock substantial assets or persistent access."
 
-**The authentication gap is real:** 49% of servers still use RSA certificates and 21% have certificate validity periods over one year. These are the long-lived quantum-vulnerable keys that Cloudflare identifies as the highest priority to upgrade. Once a quantum computer can forge an RSA-2048 signature — which Oratomic estimates requires only ~10,000 neutral atom qubits — every one of these certificates becomes an attack vector. No production server uses PQC certificates (ML-DSA) yet.
+**The authentication gap is real.** 58% of servers with parseable certificates still use RSA, and 10% have certificate validity periods over one year. These are quantum-vulnerable keys that Cloudflare identifies as the highest priority to upgrade. Once a quantum computer can forge an RSA-2048 signature — which Oratomic estimates requires only ~10,000 neutral atom qubits — every one of these certificates becomes an attack vector. No production server uses PQC certificates (ML-DSA) yet.
 
-**Security vendors aren't practicing what they preach:** Zscaler and Tenable, both of which sell quantum-readiness assessments, don't support PQC on their own websites. Both have long-lived RSA-2048 certificates.
+**Security vendors aren't practicing what they preach.** Zscaler, Tenable, Palo Alto Networks, and Fortinet — all of which sell quantum-readiness or security posture products — don't support PQC on their own websites. CrowdStrike is the only major security vendor that does.
 
 ---
 
