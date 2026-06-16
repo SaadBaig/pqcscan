@@ -209,7 +209,7 @@ $ pqcscan tls-scan -t cloudflare.com --validate-handshake
   │
   │  ── Handshake Validation ──
   │  ✅ PQC-only:     X25519MLKEM768 (TLS 1.3)
-  │  ✅ SCSV:         Supported
+  │  ✅ TLS Fallback SCSV: Supported
   │
   │  ── Risk Assessment (🟠 HIGH) ──
   │  ✅ PQC active on TLS 1.3 — sessions quantum-resistant

@@ -101,20 +101,15 @@ fn print_scan_summary(results: &Scan) {
 
                     // Classical handshake runs internally for cert/HNDL data but not shown
 
-                    // TLS 1.2 probe
-                    // Only show TLS 1.2 line when it's rejected (the rare positive finding)
-                    if let Some(tls12) = handshake_tls12 {
-                        if !tls12.completed {
-                            println!("  │  ✅ TLS 1.2:      Rejected (no downgrade path)");
-                        }
-                    }
+                    // TLS 1.2 probe — not shown in output because client fingerprinting
+                    // causes false "rejected" results. The risk bullet handles TLS 1.2 exposure.
 
                     // SCSV
                     if let Some(scsv) = scsv_supported {
                         if *scsv {
-                            println!("  │  ✅ SCSV:         Supported");
+                            println!("  │  ✅ TLS Fallback SCSV: Supported");
                         } else {
-                            println!("  │  ❌ SCSV:         Not supported");
+                            println!("  │  ❌ TLS Fallback SCSV: Not supported");
                         }
                     }
                 } // end handshake validation section
@@ -141,7 +136,7 @@ fn print_scan_summary(results: &Scan) {
                                 format!("Vulnerable key exchange algorithms: ECDHE (TLS 1.2), {} (TLS 1.3)", group)
                             }
                             "TLS 1.2 Static RSA Key Exchange" => "Vulnerable key exchange algorithms: static RSA (TLS 1.2) — no forward secrecy".to_string(),
-                            "TLS 1.2 Not Supported" => "TLS 1.2 rejected — no protocol downgrade path".to_string(),
+                            "TLS 1.2 Not Supported" => continue, // Can't reliably detect due to fingerprinting
                             "Standard Classical Key Exchange" | "Strong Classical Key Exchange" | "Finite Field DH Key Exchange" => continue,
                             "PQC Advertised But Not Negotiated" => "PQC advertised but classical chosen in practice".to_string(),
                             "Downgrade Amplifies HNDL Risk" => "Downgrade possible — attacker can force classical".to_string(),
