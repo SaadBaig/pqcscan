@@ -215,6 +215,10 @@ $ pqcscan tls-scan -t cloudflare.com --validate-handshake
   │  ✅ PQC active on TLS 1.3 — sessions quantum-resistant
   │  ⚠️  Vulnerable key exchange algorithms: ECDHE (TLS 1.2), X25519 (TLS 1.3)
   │  ⚠️  Vulnerable certificate algorithms:  ECDSA-P-256 (90 days)
+  │
+  │  ── Remediation ──
+  │  🔧 Disable TLS 1.2 or enforce TLS 1.3 minimum to eliminate downgrade path
+  │  🔧 Adopt ML-DSA certificates when available for quantum-safe authentication
   └────────────────────────────────────────
 
 ═══════════════════════════════════════════════════════════════

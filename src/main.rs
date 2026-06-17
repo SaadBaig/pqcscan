@@ -143,7 +143,7 @@ fn print_scan_summary(results: &Scan) {
                             "RSA-2048 Certificate" => {
                                 let hs = handshake_pqc.as_ref()
                                     .filter(|h| h.completed)
-                                    .or(handshake_classical.as_ref().filter(|h| h.completed));
+                                    .or(handshake_classical.as_ref().filter(|h| h.completed)).or(handshake_tls12.as_ref().filter(|h| h.completed));
                                 let days = hs.and_then(|h| h.peer_certificate_validity_days)
                                     .map(|d| format!(" ({} days)", d))
                                     .unwrap_or_default();
@@ -152,7 +152,7 @@ fn print_scan_summary(results: &Scan) {
                             "RSA Certificate" => {
                                 let hs = handshake_pqc.as_ref()
                                     .filter(|h| h.completed)
-                                    .or(handshake_classical.as_ref().filter(|h| h.completed));
+                                    .or(handshake_classical.as_ref().filter(|h| h.completed)).or(handshake_tls12.as_ref().filter(|h| h.completed));
                                 let days = hs.and_then(|h| h.peer_certificate_validity_days)
                                     .map(|d| format!(" ({} days)", d))
                                     .unwrap_or_default();
@@ -161,7 +161,7 @@ fn print_scan_summary(results: &Scan) {
                             "ECDSA Certificate" => {
                                 let hs = handshake_pqc.as_ref()
                                     .filter(|h| h.completed)
-                                    .or(handshake_classical.as_ref().filter(|h| h.completed));
+                                    .or(handshake_classical.as_ref().filter(|h| h.completed)).or(handshake_tls12.as_ref().filter(|h| h.completed));
                                 let days = hs.and_then(|h| h.peer_certificate_validity_days)
                                     .map(|d| format!(" ({} days)", d))
                                     .unwrap_or_default();
@@ -178,6 +178,38 @@ fn print_scan_summary(results: &Scan) {
                             _ => "⚠️ ",
                         };
                         println!("  │  {} {}", icon, bullet);
+                    }
+
+                    // Remediation section — specific to findings
+                    println!("  │");
+                    println!("  │  ── Remediation ──");
+                    for finding in &hndl.findings {
+                        let remediation = match finding.category.as_str() {
+                            "No PQC Key Exchange" => Some("Deploy PQC key exchange: configure X25519MLKEM768 on TLS 1.3"),
+                            "TLS 1.2 Fallback Available" => Some("Disable TLS 1.2 or enforce TLS 1.3 minimum to eliminate downgrade path"),
+                            "TLS 1.2 Static RSA Key Exchange" => Some("Remove static RSA cipher suites — use ECDHE for forward secrecy"),
+                            "Standard Classical Key Exchange" | "Strong Classical Key Exchange" | "Finite Field DH Key Exchange" => None,
+                            "RSA-2048 Certificate" => Some("Migrate to ECDSA-P-256 or shorten cert validity to <90 days"),
+                            "RSA Certificate" => Some("Migrate to ECDSA-P-256 or shorten cert validity to <90 days"),
+                            "ECDSA Certificate" => Some("Adopt ML-DSA certificates when available for quantum-safe authentication"),
+                            "Long-Lived Certificate" => Some("Reduce certificate validity to ≤90 days (automate renewal)"),
+                            "PQC Advertised But Not Negotiated" => Some("Verify PQC group priority in server configuration"),
+                            "Downgrade Amplifies HNDL Risk" => Some("Investigate why server prefers classical over PQC when both offered"),
+                            "PQC Key Exchange Active" => None,
+                            "TLS 1.2 Not Supported" => None,
+                            "Short-Lived Certificate" => None,
+                            _ => None,
+                        };
+                        if let Some(r) = remediation {
+                            println!("  │  🔧 {}", r);
+                        }
+                    }
+
+                    // Always recommend SCSV if not supported
+                    if let Some(scsv) = scsv_supported {
+                        if !*scsv {
+                            println!("  │  🔧 Enable TLS Fallback SCSV (RFC 7507) to detect downgrade attempts");
+                        }
                     }
                 }
 

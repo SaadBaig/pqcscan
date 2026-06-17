@@ -850,13 +850,16 @@ pub async fn tls_scan_target(
                     cert_key_type: pqc
                         .peer_certificate_key_type
                         .as_deref()
-                        .or(classical.peer_certificate_key_type.as_deref()),
+                        .or(classical.peer_certificate_key_type.as_deref())
+                        .or(tls12.peer_certificate_key_type.as_deref()),
                     cert_key_bits: pqc
                         .peer_certificate_key_bits
-                        .or(classical.peer_certificate_key_bits),
+                        .or(classical.peer_certificate_key_bits)
+                        .or(tls12.peer_certificate_key_bits),
                     cert_validity_days: pqc
                         .peer_certificate_validity_days
-                        .or(classical.peer_certificate_validity_days),
+                        .or(classical.peer_certificate_validity_days)
+                        .or(tls12.peer_certificate_validity_days),
                 };
                 let assessment = hndl::assess_hndl_risk(&hndl_input);
 
