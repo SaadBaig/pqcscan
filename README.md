@@ -9,15 +9,11 @@
 
 ## Table of Contents
 
-- [Why This Matters](#why-this-matters)
-  - [Two Categories of Threat](#two-categories-of-threat)
-  - [The Downgrade Problem](#the-downgrade-problem)
 - [What pqcscan Does](#what-pqcscan-does)
   - [Level 1: Advertisement Detection](#level-1-advertisement-detection-default)
   - [Level 2: Full Handshake Validation](#level-2-full-handshake-validation---validate-handshake)
   - [Level 3: Risk Assessment](#level-3-risk-assessment)
 - [Validated PQC Algorithms](#validated-pqc-algorithms)
-- [Real-World Findings](#real-world-findings)
 - [Installation](#installation)
 - [Usage](#usage)
   - [Quick Scan](#quick-scan-advertisement-detection)
@@ -31,30 +27,6 @@
 - [A Crash Course on Rust's Core Security Innovation](#a-crash-course-on-rusts-core-security-innovation)
 
 ---
-
-# Why This Matters
-
-The timeline for quantum computers breaking cryptography just got shorter. In April 2026, two independent breakthroughs changed the calculus:
-
-- **Google announced** a dramatically improved quantum algorithm for breaking elliptic curve cryptography (P-256), backed by a zero-knowledge proof. They did not publish the algorithm itself.
-- **Oratomic published** resource estimates showing that breaking RSA-2048 and P-256 on a neutral atom quantum computer requires only ~10,000 qubits — far fewer than previous estimates of millions.
-
-These advances compound: neutral atom architectures turned out to be more scalable than expected, their qubit connectivity enables far more efficient error-correcting codes (3-4 physical qubits per logical qubit vs ~1,000 for superconducting), and the algorithms to crack cryptography now require less work. The result is that Q-Day — the day quantum computers can break deployed cryptography — has been [pulled forward significantly](https://blog.cloudflare.com/post-quantum-roadmap/) from typical 2035+ timelines. Google has accelerated their migration target to 2029. IBM Quantum Safe's CTO [can't rule out](https://blog.cloudflare.com/post-quantum-roadmap/) quantum attacks on high-value targets as early as 2029.
-
-### Two categories of threat
-
-**Harvest Now, Decrypt Later (HNDL)** — Adversaries record encrypted traffic today and store it until quantum computers can decrypt it. Any data with a long shelf life (medical records, financial data, state secrets, intellectual property) is already at risk. This is the threat that post-quantum *encryption* (key exchange) addresses, and it's been the industry's primary focus since Cloudflare enabled PQ encryption by default in 2022. Over 65% of human traffic to Cloudflare is now post-quantum encrypted.
-
-**Quantum-forged authentication** — Once quantum computers arrive, an attacker can forge certificates, sign malicious code updates, and impersonate servers in real time. As [Cloudflare notes](https://blog.cloudflare.com/post-quantum-roadmap/): "data leaks are severe, but broken authentication is catastrophic. Any overlooked quantum-vulnerable remote-login key is an access point for an attacker to do as they wish." This is the next frontier — post-quantum *signatures* (ML-DSA, SLH-DSA) — and no production TLS servers use PQC certificates yet.
-
-### The downgrade problem
-
-Adding PQC support is necessary but not sufficient. Servers must also *disable* quantum-vulnerable cryptography to prevent downgrade attacks. Our scan of 457 top domains found that **99.6% still accept TLS 1.2** — meaning an active attacker can force any connection back to a quantum-vulnerable protocol, even if the server supports PQC on TLS 1.3. As long as the legacy path exists, the HNDL risk remains.
-
-The [USA](https://www.keyfactor.com/blog/nist-drops-new-deadline-for-pqc-transition/), [EU](https://digital-strategy.ec.europa.eu/en/library/recommendation-coordinated-implementation-roadmap-transition-post-quantum-cryptography), and [UK](https://www.ncsc.gov.uk/news/pqc-migration-roadmap-unveiled) have set deadlines for phasing out non-PQC algorithms between 2030-2035. NIST standardized the first post-quantum algorithms in August 2024: [ML-KEM](https://csrc.nist.gov/pubs/fips/203/final) (FIPS 203) for key exchange, [ML-DSA](https://csrc.nist.gov/pubs/fips/204/final) (FIPS 204) and [SLH-DSA](https://csrc.nist.gov/pubs/fips/205/final) (FIPS 205) for signatures.
-
-This tool answers a simple question: **is your infrastructure ready?**
-
 ---
 
 # What pqcscan Does
@@ -109,36 +81,6 @@ For SSH, the tool identifies PQC KEX algorithms including `sntrup761x25519-sha51
 ML-DSA (FIPS 204) and SLH-DSA (FIPS 205) signature algorithms are not yet covered — no production TLS servers use PQC certificates today.
 
 ---
-
-# Real-World Findings
-
-Tested against 411 domains across tech, finance, government, healthcare, energy, telecom, and defense sectors (June 2026):
-
-| Metric | Result |
-|---|---|
-| PQC key exchange supported | **38%** (156 of 405 successful scans) |
-| PQC among top 50 sites | **58%** (concentrated in major platforms) |
-| TLS 1.2 fallback accepted | **97%** (394 of 405) |
-| HNDL CRITICAL | 249 servers |
-| HNDL HIGH | 156 servers |
-| HNDL MEDIUM or lower | **0 servers** |
-| SCSV fallback supported | 251 (62%) |
-| RSA certificates | 89 (58% of parsed certs) |
-| ECDSA certificates | 65 (42% of parsed certs) |
-| Long-lived certs (>1 year) | 43 (10%) |
-
-### Key takeaways
-
-**PQC adoption is concentrated at the top.** The internet's largest platforms — Google, Cloudflare, Apple, Meta, Wikipedia, Reddit, Discord, OpenAI, Twitch, Pinterest, Zoom — all negotiate PQC when offered, primarily X25519MLKEM768. Google leads with standalone ML-KEM-1024. But adoption drops sharply outside the top 50: only 38% of a broader 400+ domain sample supports PQC, revealing that smaller organizations and non-tech industries haven't migrated yet.
-
-**Not a single server scored below HIGH on the HNDL assessment.** The reason: 97% still accept TLS 1.2 fallback. Even servers with perfect PQC on TLS 1.3 remain vulnerable to downgrade attacks that force connections back to quantum-breakable key exchange. As [Cloudflare's PQ roadmap](https://blog.cloudflare.com/post-quantum-roadmap/) emphasizes, "adding support for PQ cryptography is not enough — systems must disable support for quantum-vulnerable cryptography to be secure against downgrade attacks."
-
-**Financial institutions are behind.** Chase, Wells Fargo, Barclays, Capital One, Citibank, and Morgan Stanley — all CRITICAL. No PQC, RSA-2048 certificates, and in several cases no SCSV fallback protection. Bank of America is the sole exception among top US banks, supporting both X25519MLKEM768 and SECP256R1MLKEM768. These are exactly the "high-value targets" that Cloudflare warns will be prioritized by early quantum attackers: "long-lived keys that unlock substantial assets or persistent access."
-
-**The authentication gap is real.** 58% of servers with parseable certificates still use RSA, and 10% have certificate validity periods over one year. These are quantum-vulnerable keys that Cloudflare identifies as the highest priority to upgrade. Once a quantum computer can forge an RSA-2048 signature — which Oratomic estimates requires only ~10,000 neutral atom qubits — every one of these certificates becomes an attack vector. No production server uses PQC certificates (ML-DSA) yet.
-
-**Security vendors aren't practicing what they preach.** Zscaler, Tenable, Palo Alto Networks, and Fortinet — all of which sell quantum-readiness or security posture products — don't support PQC on their own websites. CrowdStrike is the only major security vendor that does.
-
 ---
 
 # Installation
@@ -214,10 +156,10 @@ $ pqcscan tls-scan -t cloudflare.com --validate-handshake
   │  ── Risk Assessment (🟠 HIGH) ──
   │  ✅ PQC active on TLS 1.3 — sessions quantum-resistant
   │  ⚠️  Vulnerable key exchange algorithms: ECDHE (TLS 1.2), X25519 (TLS 1.3)
-  │  ⚠️  Vulnerable certificate algorithms:  ECDSA-P-256 (90 days)
+  │  ⚠️  Vulnerable certificate algorithms:  ECDSA-P-256
   │
   │  ── Remediation ──
-  │  🔧 Disable TLS 1.2 or enforce TLS 1.3 minimum to eliminate downgrade path
+  │  🔧 Plan TLS 1.2 deprecation per NIST SP 800-52 Rev. 2 (target: 2030)
   │  🔧 Adopt ML-DSA certificates when available for quantum-safe authentication
   └────────────────────────────────────────
 

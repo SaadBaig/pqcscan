@@ -141,33 +141,19 @@ fn print_scan_summary(results: &Scan) {
                             "PQC Advertised But Not Negotiated" => "PQC advertised but classical chosen in practice".to_string(),
                             "Downgrade Amplifies HNDL Risk" => "Downgrade possible — attacker can force classical".to_string(),
                             "RSA-2048 Certificate" => {
-                                let hs = handshake_pqc.as_ref()
-                                    .filter(|h| h.completed)
-                                    .or(handshake_classical.as_ref().filter(|h| h.completed)).or(handshake_tls12.as_ref().filter(|h| h.completed));
-                                let days = hs.and_then(|h| h.peer_certificate_validity_days)
-                                    .map(|d| format!(" ({} days)", d))
-                                    .unwrap_or_default();
-                                format!("Vulnerable certificate algorithms:  RSA-2048{}", days)
+                                "Vulnerable certificate algorithms:  RSA-2048".to_string()
                             }
                             "RSA Certificate" => {
-                                let hs = handshake_pqc.as_ref()
-                                    .filter(|h| h.completed)
-                                    .or(handshake_classical.as_ref().filter(|h| h.completed)).or(handshake_tls12.as_ref().filter(|h| h.completed));
-                                let days = hs.and_then(|h| h.peer_certificate_validity_days)
-                                    .map(|d| format!(" ({} days)", d))
-                                    .unwrap_or_default();
-                                format!("Vulnerable certificate algorithms:  RSA{}", days)
+                                "Vulnerable certificate algorithms:  RSA".to_string()
                             }
                             "ECDSA Certificate" => {
                                 let hs = handshake_pqc.as_ref()
                                     .filter(|h| h.completed)
-                                    .or(handshake_classical.as_ref().filter(|h| h.completed)).or(handshake_tls12.as_ref().filter(|h| h.completed));
-                                let days = hs.and_then(|h| h.peer_certificate_validity_days)
-                                    .map(|d| format!(" ({} days)", d))
-                                    .unwrap_or_default();
+                                    .or(handshake_classical.as_ref().filter(|h| h.completed))
+                                    .or(handshake_tls12.as_ref().filter(|h| h.completed));
                                 let kt = hs.and_then(|h| h.peer_certificate_key_type.as_deref())
                                     .unwrap_or("ECDSA");
-                                format!("Vulnerable certificate algorithms:  {}{}", kt, days)
+                                format!("Vulnerable certificate algorithms:  {}", kt)
                             }
                             "Long-Lived Certificate" | "Short-Lived Certificate" => continue,
                             "Static RSA Key Exchange" => "Static RSA — no forward secrecy, all sessions decryptable".to_string(),
