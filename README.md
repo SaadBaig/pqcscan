@@ -39,7 +39,7 @@ Sends raw TLS ClientHello messages to probe which PQC key exchange groups a serv
 ### Level 2: Full Handshake Validation (`--validate-handshake`)
 Completes three real TLS handshakes per target using [rustls](https://github.com/rustls/rustls):
 
-1. **PQC-enabled** (TLS 1.3) — offers ML-KEM hybrid key exchange alongside classical groups
+1. **PQC-only** (TLS 1.3) — offers only PQC key exchange groups; if the server doesn't support PQC, the handshake fails
 2. **Classical-only** (TLS 1.3) — excludes all PQC groups to test fallback behavior
 3. **TLS 1.2 probe** — tests whether the server accepts the legacy protocol
 
@@ -190,9 +190,7 @@ RUST_LOG=debug pqcscan tls-scan -t example.com --validate-handshake
 ## All Options
 
 ```
-pqcscan tls-scan --help
-pqcscan ssh-scan --help
-pqcscan create-report --help
+pqcscan --help
 ```
 
 Key flags for `tls-scan`:
