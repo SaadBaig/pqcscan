@@ -5,7 +5,7 @@
 
 *Scan SSH/TLS servers for PQC support, validate real handshake behavior, and assess quantum risk*
 
-> **Fork note:** This fork extends [pqcscan](https://github.com/anvilsecure/pqcscan) by Anvil Secure with full TLS handshake validation, downgrade attack detection, HNDL risk assessment, SCSV fallback testing, and X.509 certificate analysis. It goes beyond checking what servers advertise to validating what they actually negotiate — and flags whether captured traffic is decryptable by a future quantum computer. Stick around till the end for a crash course on Rust's core security innovation and why it matters for security tooling.
+> **Fork note:** This fork extends [pqcscan](https://github.com/anvilsecure/pqcscan) by Anvil Secure with full TLS handshake validation, downgrade attack detection, quantum risk assessment, SCSV fallback testing, and X.509 certificate analysis. It goes beyond checking what servers advertise to validating what they actually negotiate — and flags whether captured traffic is decryptable by a future quantum computer. Stick around till the end for a crash course on Rust's core security innovation and why it matters for security tooling.
 
 ## Table of Contents
 
@@ -17,8 +17,9 @@
 - [Installation](#installation)
 - [Usage](#usage)
   - [Quick Scan](#quick-scan-advertisement-detection)
-  - [Full Handshake Validation with HNDL Assessment](#full-handshake-validation-with-hndl-assessment)
+  - [Full Handshake Validation with Risk Assessment](#full-handshake-validation-with-risk-assessment)
   - [CSV Export](#csv-export)
+  - [HTML Report](#html-report)
   - [Example Output](#example-output)
   - [All Options](#all-options)
 - [How It Works](#how-it-works)
@@ -46,7 +47,7 @@ Completes three real TLS handshakes per target using [rustls](https://github.com
 Each handshake goes through the full lifecycle: key exchange, encrypted extensions, certificate verification, and Finished messages. The tool also tests [TLS_FALLBACK_SCSV](https://www.rfc-editor.org/rfc/rfc7507) (RFC 7507) to check if the server detects version downgrade attempts.
 
 ### Level 3: Risk Assessment
-Compares handshake results to detect **downgrade attacks** (server chose classical when PQC was offered) and runs a **Harvest Now, Decrypt Later** risk assessment with eight heuristic checks:
+Compares handshake results to detect **downgrade attacks** (server chose classical when PQC was offered) and runs a quantum risk assessment with eight heuristic checks:
 
 | Check | What it detects | Severity |
 |---|---|---|
@@ -59,7 +60,7 @@ Compares handshake results to detect **downgrade attacks** (server chose classic
 | Long-lived certificates | Extended impersonation window | 🟡 MEDIUM |
 | RSA/ECDSA certificates | Classical keys are quantum-forgeable | 🟡 MEDIUM |
 
-X.509 certificates are parsed to extract key type (RSA, ECDSA-P-256, Ed25519), key size, and validity period. SSH servers get their own HNDL assessment based on advertised KEX algorithms and classical fallback risk.
+X.509 certificates are parsed to extract key type (RSA, ECDSA-P-256, Ed25519), key size, and validity period. SSH servers get their own risk assessment based on advertised KEX algorithms and classical fallback risk.
 
 ---
 
@@ -112,20 +113,23 @@ pqcscan tls-scan -t cloudflare.com
 # Scan a single SSH target
 pqcscan ssh-scan -t github.com:22
 
-# Scan from a target list
+# Scan from a target list with JSON output
 pqcscan tls-scan -T targets.txt -o results.json
 
-# Generate an HTML report
+# Scan with HTML report
+pqcscan tls-scan -T targets.txt --validate-handshake --report report.html
+
+# Convert JSON results to HTML report
 pqcscan create-report -i results.json -o report.html
 ```
 
-## Full Handshake Validation with HNDL Assessment
+## Full Handshake Validation with Risk Assessment
 
 ```bash
 pqcscan tls-scan -t cloudflare.com --validate-handshake
 ```
 
-This performs three real handshakes, tests SCSV fallback signaling, parses the server certificate, and produces an HNDL risk rating.
+This performs three real handshakes, tests SCSV fallback signaling, parses the server certificate, and produces a risk rating.
 
 ## CSV Export
 
@@ -133,7 +137,19 @@ This performs three real handshakes, tests SCSV fallback signaling, parses the s
 pqcscan tls-scan -T targets.txt --validate-handshake --csv results.csv
 ```
 
-One row per target with columns: host, port, protocol, pqc_supported, pqc_algorithms, negotiated_group, negotiated_cipher, tls12_fallback, hndl_risk, scsv_supported, cert_key_type, cert_key_bits, cert_validity_days.
+One row per target with columns: host, port, protocol, pqc_supported, pqc_algorithms, negotiated_group, negotiated_cipher, tls12_fallback, risk_level, scsv_supported, cert_key_type, cert_key_bits, cert_validity_days.
+
+## HTML Report
+
+```bash
+# Generate directly from a scan
+pqcscan tls-scan -T targets.txt --validate-handshake --report report.html
+
+# Or convert existing JSON results
+pqcscan create-report -i results.json -o report.html
+```
+
+The `--report` flag works on both `tls-scan` and `ssh-scan` subcommands, generating an HTML report directly from scan results without needing an intermediate JSON file.
 
 ## Example Output
 
@@ -181,13 +197,21 @@ pqcscan create-report --help
 ```
 
 Key flags for `tls-scan`:
-- `-t HOST:PORT` — single target
+- `-t HOST:PORT` — single target (port 443 is default)
 - `-T FILE` — target list (one per line, `#` comments supported)
 - `-o FILE` — JSON output
 - `--csv FILE` — CSV output
-- `--validate-handshake` — full handshake validation + HNDL assessment
+- `--report FILE` — HTML report output
+- `--validate-handshake` — full handshake validation + risk assessment
 - `--only-hybrid-algos` — limit to hybrid PQC algorithms
 - `--test-nonpqc-algos` — also test classical groups
+- `--num-threads N` — parallel scan threads (default: 8)
+
+Key flags for `ssh-scan`:
+- `-t HOST:PORT` — single target (port 22 is default)
+- `-T FILE` — target list
+- `-o FILE` — JSON output
+- `--report FILE` — HTML report output
 - `--num-threads N` — parallel scan threads (default: 8)
 
 ---
@@ -200,7 +224,7 @@ The tool uses two complementary approaches:
 
 **rustls-based validator** (`src/handshake.rs`) — Uses the [rustls](https://github.com/rustls/rustls) TLS library with [rustls-post-quantum](https://crates.io/crates/rustls-post-quantum) to complete real handshakes with actual key exchange. This validates that the server doesn't just accept PQC groups but actually completes the full cryptographic handshake with them.
 
-**HNDL engine** (`src/hndl.rs`) — Takes all collected data (PQC support, handshake results, TLS 1.2 fallback, certificate details, downgrade detection) and produces a severity-rated risk assessment.
+**Risk assessment engine** (`src/hndl.rs`) — Takes all collected data (PQC support, handshake results, TLS 1.2 fallback, certificate details, downgrade detection) and produces a severity-rated risk assessment.
 
 ---
 
@@ -341,18 +365,17 @@ The `'a` is a lifetime parameter. It says: "this struct contains references to `
 Look at how it's used in `tls.rs`:
 
 ```rust
-let (pqc, classical, tls12, downgrade) =
-    handshake::validate_handshake(config, target);
+let hs_result = handshake::validate_handshake(config, target);
 
 let hndl_input = hndl::HndlInput {
-    handshake_pqc: Some(&pqc),
-    handshake_classical: Some(&classical),
+    handshake_pqc: Some(&hs_result.pqc),
+    handshake_classical: Some(&hs_result.classical),
     // ...
 };
 let assessment = hndl::assess_hndl_risk(&hndl_input);
 ```
 
-`&pqc` borrows `pqc`. The compiler checks that `pqc` lives longer than `hndl_input`. Since both are local variables in the same block, this is fine. If you tried to return `hndl_input` from this function while `pqc` was dropped, the compiler would catch it.
+`&hs_result.pqc` borrows `hs_result.pqc`. The compiler checks that `hs_result` lives longer than `hndl_input`. Since both are local variables in the same block, this is fine. If you tried to return `hndl_input` from this function while `hs_result` was dropped, the compiler would catch it.
 
 ## Why This Matters for a Security Tool
 
