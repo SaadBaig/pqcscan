@@ -22,8 +22,6 @@
         {% endif %}
     {% endfor %}
 
-
-
   {% set tmp = tls_results[hostname] %}
   {% for tmp2 in tmp %}
     {% set result = tmp2['Tls'] %}
@@ -34,226 +32,143 @@
         <div class="col-md-12">
         <div class="card">
             <div class="card-header">
-            <h5>{{hostname}}</h5>
+            <h5>{{hostname}}:{{ result['targetspec']['port'] }}</h5>
             </div>
             <div class="card-body">
                 {% if result['error'] %}
                 <table class="table table-sm pqcscan-error pqc-notsupported">
+                <tbody>
+                    <tr>
+                        <th width="20%">Error</th>
+                        <td class="text-danger">{{ result['error'] }}</td>
+                    </tr>
+                </tbody>
+                </table>
                 {% else %}
+
                 {% if result['pqc_supported'] %}
                 <table class="table table-sm pqcscan-ok pqc-supported">
                 {% else %}
                 <table class="table table-sm pqcscan-ok pqc-notsupported">
-                {% endif %}                      
                 {% endif %}
 
                 <tbody>
-                    
+                    <!-- PQC Support -->
                     <tr>
-                    <th width="100%" colspan="2" class="text-center">&nbsp;</th>
+                        <th width="20%">PQC Support</th>
+                        {% if result['pqc_supported'] %}
+                        <td><span class="text-success">✅ Yes</span>
+                            {% if result['pqc_algos'] %}
+                                {% for algo in result['pqc_algos'] | sort %}{{ algo }}{% if not loop.last %}, {% endif %}{% endfor %}
+                            {% endif %}
+                            {% if result['hybrid_algos'] %}
+                                {% if result['pqc_algos'] and result['pqc_algos'] | length > 0 %}, {% endif %}
+                                {% for algo in result['hybrid_algos'] | sort %}{{ algo }}{% if not loop.last %}, {% endif %}{% endfor %}
+                            {% endif %}
+                        </td>
+                        {% else %}
+                        <td><span class="text-danger">❌ No</span></td>
+                        {% endif %}
                     </tr>
-                    <tr>
-                    <th width="20%">Port</th>
-                    <td>{{ result['targetspec']['port'] }}</td>
-                    </tr>
-                    {% if result['error'] %}
-                    <tr>
-                    <th width="20%">Error</th>
-                    <td class="text-danger">{{ result['error'] }}</td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                    <th width="20%">PQC Supported</th>
 
-                    {% if result['pqc_supported'] %}
-                        <td class="text-success">{{ result['pqc_supported']}}</td>
-                        <tr>
-                            <th width="20%">PQC Algorithms</th>
-                            <td>
-                                {% if result['pqc_algos'] and result['pqc_algos'].count > 0 %}
-                                    {% for algo in result['pqc_algos'] | sort %}
-                                        {{ algo }}{% if not loop.last %}, {% endif %}
-                                    {% endfor %}
-                                {% endif %}
-                                {% for algo in result['hybrid_algos'] | sort %}
-                                    {{ algo }}{% if not loop.last %}, {% endif %}
-                                {% endfor %}
-                            </td>
-                          </tr>
-                    {% else %}
-                        <td class="text-warning">{{ result['pqc_supported']}}</td>
-                    {% endif %}
-                    </tr>
-                    {% if result['negotiated_cipher_suite'] %}
-                    <tr>
-                        <th width="20%">Negotiated Cipher Suite</th>
-                        <td>{{ result['negotiated_cipher_suite'] }}</td>
-                    </tr>
-                    {% endif %}
-                    {% if result['negotiated_group'] %}
-                    <tr>
-                        <th width="20%">Negotiated Group</th>
-                        <td>{{ result['negotiated_group'] }}</td>
-                    </tr>
-                    {% endif %}
-                    {% if result['negotiated_version'] %}
-                    <tr>
-                        <th width="20%">Negotiated Version</th>
-                        <td>{{ result['negotiated_version'] }}</td>
-                    </tr>
-                    {% endif %}
-                    {% if result['is_hello_retry_request'] %}
-                    <tr>
-                        <th width="20%">HelloRetryRequest</th>
-                        <td class="text-info">Server responded with HelloRetryRequest (supports group but requires key share)</td>
-                    </tr>
-                    {% endif %}
+                    <!-- Handshake Validation -->
                     {% if result['handshake_pqc'] %}
+                    <tr><th colspan="2" class="text-center pt-3"><strong>Handshake Validation</strong></th></tr>
                     <tr>
-                        <th width="100%" colspan="2" class="text-center"><strong>Full Handshake Validation (PQC)</strong></th>
-                    </tr>
-                    <tr>
-                        <th width="20%">Handshake Completed</th>
-                        <td>{% if result['handshake_pqc']['completed'] %}<span class="text-success">true</span>{% else %}<span class="text-danger">false</span>{% endif %}</td>
-                    </tr>
-                    {% if result['handshake_pqc']['negotiated_cipher_suite'] %}
-                    <tr>
-                        <th width="20%">Cipher Suite</th>
-                        <td>{{ result['handshake_pqc']['negotiated_cipher_suite'] }}</td>
-                    </tr>
-                    {% endif %}
-                    {% if result['handshake_pqc']['negotiated_group'] %}
-                    <tr>
-                        <th width="20%">Key Exchange Group</th>
-                        <td>{{ result['handshake_pqc']['negotiated_group'] }}</td>
-                    </tr>
-                    {% endif %}
-                    {% if result['handshake_pqc']['negotiated_version'] %}
-                    <tr>
-                        <th width="20%">Protocol Version</th>
-                        <td>{{ result['handshake_pqc']['negotiated_version'] }}</td>
-                    </tr>
-                    {% endif %}
-                    {% if result['handshake_pqc']['handshake_error'] %}
-                    <tr>
-                        <th width="20%">Error</th>
-                        <td class="text-danger">{{ result['handshake_pqc']['handshake_error'] }}</td>
-                    </tr>
-                    {% endif %}
-                    {% endif %}
-                    {% if result['handshake_classical'] %}
-                    <tr>
-                        <th width="100%" colspan="2" class="text-center"><strong>Full Handshake Validation (Classical)</strong></th>
-                    </tr>
-                    <tr>
-                        <th width="20%">Handshake Completed</th>
-                        <td>{% if result['handshake_classical']['completed'] %}<span class="text-success">true</span>{% else %}<span class="text-danger">false</span>{% endif %}</td>
-                    </tr>
-                    {% if result['handshake_classical']['negotiated_group'] %}
-                    <tr>
-                        <th width="20%">Key Exchange Group</th>
-                        <td>{{ result['handshake_classical']['negotiated_group'] }}</td>
-                    </tr>
-                    {% endif %}
-                    {% if result['handshake_classical']['handshake_error'] %}
-                    <tr>
-                        <th width="20%">Error</th>
-                        <td class="text-danger">{{ result['handshake_classical']['handshake_error'] }}</td>
-                    </tr>
-                    {% endif %}
-                    {% endif %}
-                    {% if result['handshake_tls12'] %}
-                    <tr>
-                        <th width="100%" colspan="2" class="text-center"><strong>TLS 1.2 Fallback Probe</strong></th>
-                    </tr>
-                    <tr>
-                        <th width="20%">TLS 1.2 Accepted</th>
-                        <td>{% if result['handshake_tls12']['completed'] %}<span class="text-warning">Yes — legacy fallback available</span>{% else %}<span class="text-success">No — TLS 1.2 rejected</span>{% endif %}</td>
-                    </tr>
-                    {% if result['handshake_tls12']['negotiated_cipher_suite'] %}
-                    <tr>
-                        <th width="20%">Cipher Suite</th>
-                        <td>{{ result['handshake_tls12']['negotiated_cipher_suite'] }}</td>
-                    </tr>
-                    {% endif %}
-                    {% if result['handshake_tls12']['negotiated_version'] %}
-                    <tr>
-                        <th width="20%">Protocol Version</th>
-                        <td>{{ result['handshake_tls12']['negotiated_version'] }}</td>
-                    </tr>
-                    {% endif %}
-                    {% if result['handshake_tls12']['handshake_error'] %}
-                    <tr>
-                        <th width="20%">Error</th>
-                        <td>{{ result['handshake_tls12']['handshake_error'] }}</td>
-                    </tr>
-                    {% endif %}
-                    {% endif %}
-                    {% if result['downgrade_check'] %}
-                    <tr>
-                        <th width="100%" colspan="2" class="text-center"><strong>Downgrade Detection</strong></th>
-                    </tr>
-                    <tr>
-                        <th width="20%">PQC Offered &amp; Used</th>
-                        <td>{% if result['downgrade_check']['pqc_offered_and_used'] %}<span class="text-success">true</span>{% else %}<span class="text-warning">false</span>{% endif %}</td>
-                    </tr>
-                    <tr>
-                        <th width="20%">Classical Fallback</th>
-                        <td>{% if result['downgrade_check']['classical_fallback_works'] %}<span class="text-success">Available</span>{% else %}<span class="text-warning">Unavailable</span>{% endif %}</td>
-                    </tr>
-                    {% if result['downgrade_check']['potential_downgrade'] %}
-                    <tr>
-                        <th width="20%">Potential Downgrade</th>
-                        <td class="text-danger"><strong>WARNING:</strong> {{ result['downgrade_check']['details'] }}</td>
-                    </tr>
-                    {% else %}
-                    <tr>
-                        <th width="20%">Assessment</th>
-                        <td>{{ result['downgrade_check']['details'] }}</td>
-                    </tr>
-                    {% endif %}
-                    {% endif %}
-                    {% endif %}
-                    {% if result['hndl_assessment'] %}
-                    <tr>
-                        <th width="100%" colspan="2" class="text-center"><strong>Harvest Now, Decrypt Later (HNDL) Risk Assessment</strong></th>
-                    </tr>
-                    <tr>
-                        <th width="20%">Risk Level</th>
+                        <th>PQC-only Handshake</th>
                         <td>
-                            {% if result['hndl_assessment']['risk_level'] == "Critical" %}
-                                <span class="text-danger"><strong>🔴 CRITICAL</strong></span>
-                            {% elif result['hndl_assessment']['risk_level'] == "High" %}
-                                <span class="text-danger">🟠 HIGH</span>
-                            {% elif result['hndl_assessment']['risk_level'] == "Medium" %}
-                                <span class="text-warning">🟡 MEDIUM</span>
-                            {% elif result['hndl_assessment']['risk_level'] == "Low" %}
-                                <span class="text-success">🟢 LOW</span>
+                            {% if result['handshake_pqc']['completed'] %}
+                                <span class="text-success">✅ {{ result['handshake_pqc']['negotiated_group'] | default(value="-") }} (TLS 1.3)</span>
                             {% else %}
-                                <span class="text-success">✅ INFO</span>
+                                <span class="text-danger">❌ Failed</span>
                             {% endif %}
                         </td>
                     </tr>
-                    {% if result['hndl_assessment']['quantum_vulnerable'] %}
+                    {% if result['handshake_tls12'] %}
                     <tr>
-                        <th width="20%">Quantum Status</th>
-                        <td class="text-danger"><strong>⚠️ Traffic captured today is decryptable post-quantum</strong></td>
+                        <th>TLS 1.2 Fallback</th>
+                        <td>
+                            {% if result['handshake_tls12']['completed'] %}
+                                <span class="text-warning">⚠️ Accepted ({{ result['handshake_tls12']['negotiated_cipher_suite'] | default(value="-") }})</span>
+                            {% else %}
+                                <span class="text-success">✅ Rejected — no downgrade path</span>
+                            {% endif %}
+                        </td>
                     </tr>
                     {% endif %}
+                    {% if result['scsv_supported'] is defined %}
+                    <tr>
+                        <th>TLS Fallback SCSV</th>
+                        <td>
+                            {% if result['scsv_supported'] %}
+                                <span class="text-success">✅ Supported</span>
+                            {% else %}
+                                <span class="text-danger">❌ Not supported</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% endif %}
+
+                    <!-- Risk Assessment -->
+                    {% if result['hndl_assessment'] %}
+                    <tr><th colspan="2" class="text-center pt-3">
+                        <strong>Risk Assessment —
+                            {% if result['hndl_assessment']['risk_level'] == "Critical" %}
+                                <span class="text-danger">🔴 CRITICAL</span>
+                            {% elif result['hndl_assessment']['risk_level'] == "High" %}
+                                <span class="text-warning">🟠 HIGH</span>
+                            {% elif result['hndl_assessment']['risk_level'] == "Medium" %}
+                                <span class="text-warning">🟡 MEDIUM</span>
+                            {% else %}
+                                <span class="text-success">🟢 LOW</span>
+                            {% endif %}
+                        </strong>
+                    </th></tr>
                     {% for finding in result['hndl_assessment']['findings'] %}
                     <tr>
-                        <th width="20%">
-                            {% if finding['severity'] == "Critical" %}🔴
-                            {% elif finding['severity'] == "High" %}🟠
-                            {% elif finding['severity'] == "Medium" %}🟡
-                            {% elif finding['severity'] == "Low" %}🟢
-                            {% else %}ℹ️{% endif %}
+                        <th>
+                            {% if finding['severity'] == "Critical" or finding['severity'] == "High" %}⚠️
+                            {% elif finding['severity'] == "Info" %}✅
+                            {% else %}⚠️{% endif %}
                             {{ finding['category'] }}
                         </th>
                         <td>{{ finding['detail'] }}</td>
                     </tr>
                     {% endfor %}
+
+                    <!-- Remediation -->
+                    <tr><th colspan="2" class="text-center pt-3"><strong>Remediation</strong></th></tr>
+                    {% if not result['pqc_supported'] %}
+                    <tr><td colspan="2">🔧 Deploy PQC key exchange: configure X25519MLKEM768 on TLS 1.3</td></tr>
                     {% endif %}
+                    {% if result['handshake_tls12'] and result['handshake_tls12']['completed'] %}
+                    <tr><td colspan="2">🔧 Plan TLS 1.2 deprecation per NIST SP 800-52 Rev. 2 (target: 2030)</td></tr>
+                    {% endif %}
+                    {% if result['scsv_supported'] is defined and not result['scsv_supported'] %}
+                    <tr><td colspan="2">🔧 Enable TLS Fallback SCSV (RFC 7507) to detect downgrade attempts</td></tr>
+                    {% endif %}
+                    {% if result['handshake_pqc'] and result['handshake_pqc']['peer_certificate_key_type'] %}
+                        {% if "RSA" in result['handshake_pqc']['peer_certificate_key_type'] %}
+                    <tr><td colspan="2">🔧 Shorten cert validity to ≤90 days; adopt ML-DSA certificates when available</td></tr>
+                        {% elif "ECDSA" in result['handshake_pqc']['peer_certificate_key_type'] %}
+                    <tr><td colspan="2">🔧 Adopt ML-DSA certificates when available for quantum-safe authentication</td></tr>
+                        {% endif %}
+                    {% elif result['handshake_classical'] and result['handshake_classical']['peer_certificate_key_type'] %}
+                        {% if "RSA" in result['handshake_classical']['peer_certificate_key_type'] %}
+                    <tr><td colspan="2">🔧 Shorten cert validity to ≤90 days; adopt ML-DSA certificates when available</td></tr>
+                        {% elif "ECDSA" in result['handshake_classical']['peer_certificate_key_type'] %}
+                    <tr><td colspan="2">🔧 Adopt ML-DSA certificates when available for quantum-safe authentication</td></tr>
+                        {% endif %}
+                    {% elif result['handshake_tls12'] and result['handshake_tls12']['peer_certificate_key_type'] %}
+                        {% if "RSA" in result['handshake_tls12']['peer_certificate_key_type'] %}
+                    <tr><td colspan="2">🔧 Shorten cert validity to ≤90 days; adopt ML-DSA certificates when available</td></tr>
+                        {% elif "ECDSA" in result['handshake_tls12']['peer_certificate_key_type'] %}
+                    <tr><td colspan="2">🔧 Adopt ML-DSA certificates when available for quantum-safe authentication</td></tr>
+                        {% endif %}
+                    {% endif %}
+                    {% endif %}
+
                     {% endif %}
                 </tbody>
                 </table>

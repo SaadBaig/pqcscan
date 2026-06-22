@@ -414,22 +414,21 @@ fn check_static_rsa(input: &HndlInput, findings: &mut Vec<HndlFinding>) {
                 .negotiated_version
                 .as_deref()
                 .unwrap_or("");
-            if version.contains("1.2") || version.contains("0x0303") {
-                if cipher_upper.starts_with("TLS_RSA_")
-                    && !cipher_upper.contains("ECDHE")
-                    && !cipher_upper.contains("DHE")
-                {
-                    findings.push(HndlFinding {
-                        severity: HndlSeverity::Critical,
-                        category: "Static RSA Key Exchange".to_string(),
-                        detail: format!(
-                            "Classical handshake negotiated static RSA cipher ({}). \
-                             No forward secrecy — a single RSA key compromise decrypts \
-                             ALL recorded sessions. This is the highest HNDL risk.",
-                            cipher
-                        ),
-                    });
-                }
+            if (version.contains("1.2") || version.contains("0x0303"))
+                && cipher_upper.starts_with("TLS_RSA_")
+                && !cipher_upper.contains("ECDHE")
+                && !cipher_upper.contains("DHE")
+            {
+                findings.push(HndlFinding {
+                    severity: HndlSeverity::Critical,
+                    category: "Static RSA Key Exchange".to_string(),
+                    detail: format!(
+                        "Classical handshake negotiated static RSA cipher ({}). \
+                         No forward secrecy — a single RSA key compromise decrypts \
+                         ALL recorded sessions.",
+                        cipher
+                    ),
+                });
             }
         }
     }

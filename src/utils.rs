@@ -20,16 +20,15 @@ impl fmt::Display for Target {
 pub fn parse_single_target(input: &String, default_port: Option<u16>) -> Result<Target> {
     match input.rfind(':') {
         None => {
-            if default_port.is_some() {
+            if let Some(port) = default_port {
                 Ok(Target {
                     host: input.to_string(),
-                    port: default_port.unwrap()
+                    port,
                 })
-            }
-            else {
+            } else {
                 Err(anyhow!("Could not find :<PORT> in {input} and no default port specified."))
             }
-        },
+        }
         Some(pos) => {
             let port = input[pos+1..input.len()].parse::<u16>();
             match port {
@@ -39,7 +38,7 @@ pub fn parse_single_target(input: &String, default_port: Option<u16>) -> Result<
                 Ok(port) => {
                     Ok(Target {
                         host: input[..pos].to_string(),
-                        port: port
+                        port,
                     })
                 }
             }

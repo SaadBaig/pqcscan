@@ -32,9 +32,9 @@ pub enum ScanResult {
         negotiated_group: Option<String>,
         negotiated_version: Option<String>,
         is_hello_retry_request: bool,
-        handshake_pqc: Option<HandshakeValidation>,
-        handshake_classical: Option<HandshakeValidation>,
-        handshake_tls12: Option<HandshakeValidation>,
+        handshake_pqc: Option<Box<HandshakeValidation>>,
+        handshake_classical: Option<Box<HandshakeValidation>>,
+        handshake_tls12: Option<Box<HandshakeValidation>>,
         downgrade_check: Option<DowngradeCheck>,
         hndl_assessment: Option<HndlAssessment>,
         scsv_supported: Option<bool>,
@@ -94,17 +94,18 @@ pub async fn scan_runner(config: Arc<Config>, scan: ScanOptions) -> Scan {
     log::debug!("Queuing {} targets for scanning", targets_cnt);
     for target in scan.targets {
         log::trace!("Sending {}", target);
-        if let Err(_) = tx.send(target).await {
+        if tx.send(target).await.is_err() {
             log::error!("thread dropped");
         }
     }
     for _ in 0..num_threads {
-        if let Err(_) = tx
+        if tx
             .send(Target {
                 host: "".to_string(),
                 port: 0,
             })
             .await
+            .is_err()
         {
             log::error!("Thread dropped");
         }
@@ -118,36 +119,32 @@ pub async fn scan_runner(config: Arc<Config>, scan: ScanOptions) -> Scan {
         let results_tx = results_tx_orig.clone();
         let config = config.clone();
         tokio::spawn(async move {
-            loop {
-                while let Ok(target) = rx.recv().await {
-                    /* empty host for a Target means we are asked to quit */
-                    if target.host.len() == 0 {
-                        log::trace!("Exit requested for Scan Thread {}", no);
-                        let _ = results_tx.send(ScanResult::Done).await;
-                        break;
-                    }
-
-                    log::debug!("Thread {} scanning target: {}", no, target);
-                    let scan_type = scan.scan_type.clone().unwrap();
-                    let result = match scan_type {
-                        ScanType::Tls => {
-                            tls_scan_target(
-                                &config,
-                                &target,
-                                scan.scan_hybrid_algos_only,
-                                scan.scan_nonpqc_algos,
-                                scan.validate_handshake,
-                            )
-                            .await
-                        }
-                        ScanType::Ssh => ssh_scan_target(&config, &target).await,
-                    };
-                    let _ = results_tx.send(result).await;
+            while let Ok(target) = rx.recv().await {
+                /* empty host for a Target means we are asked to quit */
+                if target.host.is_empty() {
+                    log::trace!("Exit requested for Scan Thread {}", no);
+                    let _ = results_tx.send(ScanResult::Done).await;
+                    break;
                 }
 
-                log::trace!("Exiting Scan Thread {}", no);
-                break;
+                log::debug!("Thread {} scanning target: {}", no, target);
+                let scan_type = scan.scan_type.unwrap();
+                let result = match scan_type {
+                    ScanType::Tls => {
+                        tls_scan_target(
+                            &config,
+                            &target,
+                            scan.scan_hybrid_algos_only,
+                            scan.scan_nonpqc_algos,
+                            scan.validate_handshake,
+                        )
+                        .await
+                    }
+                    ScanType::Ssh => ssh_scan_target(&config, &target).await,
+                };
+                let _ = results_tx.send(result).await;
             }
+            log::trace!("Exiting Scan Thread {}", no);
         });
     }
 

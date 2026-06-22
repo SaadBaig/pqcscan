@@ -217,12 +217,17 @@ fn do_handshake(
         .negotiated_key_exchange_group()
         .map(|g| format!("{:?}", g.name()));
 
-    let (cert_subject, cert_sig_algo, cert_key_type, cert_key_bits, cert_validity_days) =
-        match conn.peer_certificates() {
+    let cert_info = match conn.peer_certificates() {
             Some(certs) if !certs.is_empty() => {
                 parse_leaf_certificate(&certs[0])
             }
-            _ => (None, None, None, None, None),
+            _ => CertInfo {
+                subject: None,
+                sig_algo: None,
+                key_type: None,
+                key_bits: None,
+                validity_days: None,
+            },
         };
 
     // Try to receive NewSessionTicket messages by reading a bit more
@@ -235,28 +240,41 @@ fn do_handshake(
         negotiated_cipher_suite: cipher_suite,
         negotiated_version: version,
         negotiated_group: group,
-        peer_certificate_subject: cert_subject,
-        peer_certificate_sig_algo: cert_sig_algo,
-        peer_certificate_key_type: cert_key_type,
-        peer_certificate_key_bits: cert_key_bits,
-        peer_certificate_validity_days: cert_validity_days,
+        peer_certificate_subject: cert_info.subject,
+        peer_certificate_sig_algo: cert_info.sig_algo,
+        peer_certificate_key_type: cert_info.key_type,
+        peer_certificate_key_bits: cert_info.key_bits,
+        peer_certificate_validity_days: cert_info.validity_days,
         session_tickets_received: None, // rustls doesn't expose ticket count publicly
         handshake_error: None,
     }
 }
 
+/// Parsed certificate metadata.
+struct CertInfo {
+    subject: Option<String>,
+    sig_algo: Option<String>,
+    key_type: Option<String>,
+    key_bits: Option<u32>,
+    validity_days: Option<i64>,
+}
+
 /// Parse a DER-encoded leaf certificate and extract key type, key bits,
 /// signature algorithm, subject, and validity period.
-fn parse_leaf_certificate(
-    cert_der: &CertificateDer<'_>,
-) -> (Option<String>, Option<String>, Option<String>, Option<u32>, Option<i64>) {
+fn parse_leaf_certificate(cert_der: &CertificateDer<'_>) -> CertInfo {
     use x509_parser::prelude::*;
 
     let (_, cert) = match X509Certificate::from_der(cert_der.as_ref()) {
         Ok(parsed) => parsed,
         Err(e) => {
             log::debug!("Failed to parse X.509 certificate: {}", e);
-            return (None, None, None, None, None);
+            return CertInfo {
+                subject: None,
+                sig_algo: None,
+                key_type: None,
+                key_bits: None,
+                validity_days: None,
+            };
         }
     };
 
@@ -319,13 +337,27 @@ fn parse_leaf_certificate(
     let not_after = cert.validity().not_after.timestamp();
     let validity_days = (not_after - not_before) / 86400;
 
-    (subject, sig_algo, Some(key_type), key_bits, Some(validity_days))
+    CertInfo {
+        subject,
+        sig_algo,
+        key_type: Some(key_type),
+        key_bits,
+        validity_days: Some(validity_days),
+    }
 }
 
 /// Check if a negotiated group name indicates PQC key exchange.
 pub fn is_pqc_group(group: &str) -> bool {
     let g = group.to_uppercase();
     g.contains("MLKEM") || g.contains("ML_KEM") || g.contains("KYBER")
+}
+
+/// Result of the full handshake validation suite (PQC, classical, TLS 1.2, downgrade check).
+pub struct HandshakeResult {
+    pub pqc: HandshakeValidation,
+    pub classical: HandshakeValidation,
+    pub tls12: HandshakeValidation,
+    pub downgrade: DowngradeCheck,
 }
 
 /// Run a full handshake validation against a target.
@@ -338,7 +370,7 @@ pub fn is_pqc_group(group: &str) -> bool {
 pub fn validate_handshake(
     config: &Config,
     target: &Target,
-) -> (HandshakeValidation, HandshakeValidation, HandshakeValidation, DowngradeCheck) {
+) -> HandshakeResult {
     // Handshake 1: PQC-enabled
     log::info!("Handshake validation: starting PQC handshake for {}", target);
 
@@ -352,7 +384,12 @@ pub fn validate_handshake(
                 potential_downgrade: false,
                 details: "Could not build PQC configuration".to_string(),
             };
-            return (err.clone(), err.clone(), err, downgrade);
+            return HandshakeResult {
+                pqc: err.clone(),
+                classical: err.clone(),
+                tls12: err,
+                downgrade,
+            };
         }
     };
     let pqc_result = do_handshake(&pqc_config, target, config.connection_timeout);
@@ -374,7 +411,12 @@ pub fn validate_handshake(
                 potential_downgrade: false,
                 details: "Could not build classical configuration".to_string(),
             };
-            return (pqc_result, err.clone(), err, downgrade);
+            return HandshakeResult {
+                pqc: pqc_result,
+                classical: err.clone(),
+                tls12: err,
+                downgrade,
+            };
         }
     };
     let classical_result = do_handshake(&classical_config, target, config.connection_timeout);
@@ -443,7 +485,12 @@ pub fn validate_handshake(
         }
     };
 
-    (pqc_result, classical_result, tls12_result, downgrade)
+    HandshakeResult {
+        pqc: pqc_result,
+        classical: classical_result,
+        tls12: tls12_result,
+        downgrade,
+    }
 }
 
 /// Log the result of a handshake probe.

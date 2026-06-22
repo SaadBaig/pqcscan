@@ -238,7 +238,7 @@ fn print_scan_summary(results: &Scan) {
                         crate::hndl::HndlSeverity::Low => "🟢",
                         crate::hndl::HndlSeverity::Info => "✅",
                     };
-                    println!("  │  HNDL Risk:      {} {}", risk_icon, hndl.risk_level);
+                    println!("  │  Risk:           {} {}", risk_icon, hndl.risk_level);
                 }
                 println!("  └────────────────────────────────────────");
                 println!();
@@ -400,7 +400,7 @@ fn create_report(output_file: &str, input_files: &[&String]) -> Result<()> {
                 } => {
                     ssh_hosts.insert(targetspec.host.clone());
                     let host = targetspec.host.clone();
-                    if ssh_map.get(&host).is_none() {
+                    if !ssh_map.contains_key(&host) {
                         ssh_map.insert(host.clone(), Vec::new());
                     }
                     let m = ssh_map.get_mut(&host).unwrap();
@@ -421,7 +421,7 @@ fn create_report(output_file: &str, input_files: &[&String]) -> Result<()> {
                 } => {
                     tls_hosts.insert(targetspec.host.clone());
                     let host = targetspec.host.clone();
-                    if tls_map.get(&host).is_none() {
+                    if !tls_map.contains_key(&host) {
                         tls_map.insert(host.clone(), Vec::new());
                     }
                     let m = tls_map.get_mut(&host).unwrap();
@@ -516,7 +516,7 @@ fn write_csv(path: &str, scan: &Scan) -> Result<()> {
     let f = File::create(path)?;
     let mut w = BufWriter::new(f);
 
-    writeln!(w, "host,port,protocol,pqc_supported,pqc_algorithms,negotiated_group,negotiated_cipher,tls12_fallback,hndl_risk,scsv_supported,cert_key_type,cert_key_bits,cert_validity_days")?;
+    writeln!(w, "host,port,protocol,pqc_supported,pqc_algorithms,negotiated_group,negotiated_cipher,tls12_fallback,risk_level,scsv_supported,cert_key_type,cert_key_bits,cert_validity_days")?;
 
     for result in &scan.results {
         match result {
@@ -570,6 +570,84 @@ fn write_csv(path: &str, scan: &Scan) -> Result<()> {
     Ok(())
 }
 
+fn generate_report_from_scan(output_file: &str, scan: &Scan) -> Result<()> {
+    log::debug!("Generating HTML report from scan results");
+
+    let mut tls_map: HashMap<String, Vec<ScanResult>> = HashMap::new();
+    let mut ssh_map: HashMap<String, Vec<ScanResult>> = HashMap::new();
+    let mut tls_hosts: BTreeSet<String> = BTreeSet::new();
+    let mut ssh_hosts: BTreeSet<String> = BTreeSet::new();
+    let mut ssh_pqc_supported_count: usize = 0;
+    let mut tls_pqc_supported_count: usize = 0;
+    let mut ssh_success_count: usize = 0;
+    let mut tls_success_count: usize = 0;
+    let mut ssh_total_count: usize = 0;
+    let mut tls_total_count: usize = 0;
+
+    for result in &scan.results {
+        match result {
+            ScanResult::Ssh { ref targetspec, ref error, pqc_supported, .. } => {
+                ssh_hosts.insert(targetspec.host.clone());
+                let host = targetspec.host.clone();
+                ssh_map.entry(host).or_default().push(result.clone());
+                if error.is_none() { ssh_success_count += 1; }
+                if *pqc_supported { ssh_pqc_supported_count += 1; }
+                ssh_total_count += 1;
+            }
+            ScanResult::Tls { ref targetspec, ref error, pqc_supported, .. } => {
+                tls_hosts.insert(targetspec.host.clone());
+                let host = targetspec.host.clone();
+                tls_map.entry(host).or_default().push(result.clone());
+                if error.is_none() { tls_success_count += 1; }
+                if *pqc_supported { tls_pqc_supported_count += 1; }
+                tls_total_count += 1;
+            }
+            _ => continue,
+        }
+    }
+
+    let tls_fail_count = tls_total_count - tls_success_count;
+    let ssh_fail_count = ssh_total_count - ssh_success_count;
+
+    let results = ReportResults {
+        tls_results: tls_map,
+        tls_sorted_hosts: tls_hosts,
+        tls_success_count,
+        tls_pqc_supported_count,
+        tls_fail_count,
+        tls_total_count,
+        ssh_results: ssh_map,
+        ssh_sorted_hosts: ssh_hosts,
+        ssh_success_count,
+        ssh_fail_count,
+        ssh_pqc_supported_count,
+        ssh_total_count,
+        scan_windows: vec![ScanWindow {
+            start_time: scan.start_time,
+            end_time: scan.end_time,
+            scan_type: scan.scan_type,
+        }],
+    };
+
+    let templates = ["macros.html", "template.html", "ssh_results.html", "tls_results.html", "summary.html"];
+    let mut tera = Tera::default();
+    for template in templates {
+        let html_file = EmbeddedResources::get(template).unwrap();
+        let html_data = std::str::from_utf8(html_file.data.as_ref())?;
+        tera.add_raw_template(template, html_data)?;
+    }
+
+    let mut ctx = Context::from_serialize(results)?;
+    let dt = Utc::now().format("%Y-%m-%d %H:%M:%S %Z").to_string();
+    ctx.insert("title", &dt);
+
+    let f = File::create(output_file)?;
+    tera.render_to("template.html", &ctx, f)?;
+    log::info!("HTML report written to {}", output_file);
+
+    Ok(())
+}
+
 fn main() -> Result<()> {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
 
@@ -593,7 +671,15 @@ fn main() -> Result<()> {
                 .next_help_heading("Output")
                 .args(output_args("JSON", false))
                 .next_help_heading("Scan Options")
-                .args(vec![num_threads_arg()])
+                .args(vec![
+                    num_threads_arg(),
+                    Arg::new("report")
+                        .long("report")
+                        .value_name("FILE")
+                        .required(false)
+                        .action(ArgAction::Set)
+                        .help("Generate an HTML report directly from scan results"),
+                ])
                 .disable_help_flag(true)
                 .disable_version_flag(true),
         )
@@ -628,6 +714,12 @@ fn main() -> Result<()> {
                         .required(false)
                         .action(ArgAction::Set)
                         .help("Write results to a CSV file (one row per target)"),
+                    Arg::new("report")
+                        .long("report")
+                        .value_name("FILE")
+                        .required(false)
+                        .action(ArgAction::Set)
+                        .help("Generate an HTML report directly from scan results"),
                 ])
                 .disable_help_flag(true)
                 .disable_version_flag(true),
@@ -668,6 +760,7 @@ fn main() -> Result<()> {
 
     let mut output_json_file: Option<&String> = None;
     let mut output_csv_file: Option<&String> = None;
+    let mut output_report_file: Option<&String> = None;
 
     match matches.subcommand() {
         Some(("tls-scan", sub_matches)) => {
@@ -693,6 +786,7 @@ fn main() -> Result<()> {
             log::info!("Using {} thread(s)", scan.num_threads);
             output_json_file = sub_matches.get_one::<String>("output");
             output_csv_file = sub_matches.get_one::<String>("csv");
+            output_report_file = sub_matches.get_one::<String>("report");
         }
         Some(("ssh-scan", sub_matches)) => {
             log::info!("Starting SSH scan");
@@ -702,6 +796,7 @@ fn main() -> Result<()> {
             scan.num_threads = *sub_matches.get_one::<usize>("num-threads").unwrap();
             log::info!("Using {} thread(s)", scan.num_threads);
             output_json_file = sub_matches.get_one::<String>("output");
+            output_report_file = sub_matches.get_one::<String>("report");
         }
         Some(("create-report", sub_matches)) => {
             log::info!("Creating HTML report from JSON results");
@@ -739,8 +834,7 @@ fn main() -> Result<()> {
         print_scan_summary(&results);
 
         /* write results to JSON output if requested */
-        if output_json_file.is_some() {
-            let output_file = output_json_file.unwrap();
+        if let Some(output_file) = output_json_file {
             log::info!("Writing results to {}", output_file);
             let f = File::create(output_file)?;
             let mut writer = BufWriter::new(f);
@@ -751,6 +845,11 @@ fn main() -> Result<()> {
         /* write CSV output if requested */
         if let Some(csv_file) = output_csv_file {
             write_csv(csv_file, &results)?;
+        }
+
+        /* generate HTML report if requested */
+        if let Some(report_file) = output_report_file {
+            generate_report_from_scan(report_file, &results)?;
         }
     }
 

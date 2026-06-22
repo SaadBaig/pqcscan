@@ -228,7 +228,7 @@ impl Extension {
     fn empty_extension(ext_type: u16) -> Result<Extension> {
         let buf: Vec<u8> = vec![];
         Ok(Extension {
-            ext_type: ext_type,
+            ext_type,
             ext_len: 0,
             payload: buf,
         })
@@ -351,7 +351,7 @@ impl ClientHelloBuilder {
         }
     }
 
-    fn into_buf(&self) -> Result<Vec<u8>> {
+    fn to_buf(&self) -> Result<Vec<u8>> {
         let mut buf: Vec<u8> = vec![];
 
         buf.write_u16::<NetworkEndian>(self.legacy_version)?;
@@ -453,7 +453,7 @@ fn tls_connect_with_group(
     chb.add_extension(Extension::ec_point_formats()?);
 
     log::trace!("TLS: sending ClientHello");
-    stream.write_all(&chb.into_buf()?)?;
+    stream.write_all(&chb.to_buf()?)?;
     let mut buf: [u8; 16384] = [0; 16384];
 
     log::trace!("TLS: waiting for ServerHello");
@@ -534,12 +534,12 @@ fn tls_connect_with_group(
             }
         }
         log::trace!("TLS: ServerHello handshake successful");
-        return Ok(ServerHelloResult {
+        Ok(ServerHelloResult {
             negotiated_cipher_suite,
             negotiated_version,
             negotiated_group,
             is_hello_retry_request,
-        });
+        })
     } else if content_type == 0x15 {
         log::trace!("TLS: received Alert message");
         /* TLS Alert record received*/
@@ -562,9 +562,9 @@ fn tls_connect_with_group(
         if TlsAlerts.contains_key(&desc) {
             return Err(anyhow!("{}", TlsAlerts[&desc]));
         }
-        return Err(anyhow!("Unknown TLS Alert code: {:#02x}", desc));
+        Err(anyhow!("Unknown TLS Alert code: {:#02x}", desc))
     } else {
-        return Err(anyhow!("Unexpected TLS content type != [0x15, 0x16]"));
+        Err(anyhow!("Unexpected TLS content type != [0x15, 0x16]"))
     }
 }
 
@@ -617,7 +617,7 @@ fn test_fallback_scsv(
     chb.add_extension(Extension::signature_algorithms(vec![0x0401, 0x0501, 0x0601]).ok()?);
     chb.add_extension(Extension::key_share(&[]).ok()?);
 
-    stream.write_all(&chb.into_buf().ok()?).ok()?;
+    stream.write_all(&chb.to_buf().ok()?).ok()?;
     let mut buf = [0u8; 16384];
     let read = stream.read(&mut buf).ok()?;
     if read < 7 {
@@ -685,32 +685,32 @@ pub async fn tls_scan_target(
 
     for (group_name, group_info) in groups_to_test {
         log::trace!("TLS scan: testing group {} on {}", group_name, target);
-        let ret = socket_create_and_connect(&target, config.connection_timeout).await;
-        if ret.is_err() {
-            let err = ret.unwrap_err();
-            let err_msg = err.to_string();
-            log::warn!("TLS scan: connection failed for {} - {}", target, err_msg);
-            return ScanResult::Tls {
-                targetspec: target.clone(),
-                addr: None,
-                error: Some(err_msg),
-                pqc_supported: false,
-                pqc_algos: None,
-                hybrid_algos: None,
-                nonpqc_algos: None,
-                negotiated_cipher_suite: None,
-                negotiated_group: None,
-                negotiated_version: None,
-                is_hello_retry_request: false,
-                handshake_pqc: None,
-                handshake_classical: None,
-                handshake_tls12: None,
-                downgrade_check: None,
-                hndl_assessment: None,
-                scsv_supported: None,
-            };
-        }
-        let (_addr, stream) = ret.unwrap();
+        let (_addr, stream) = match socket_create_and_connect(target, config.connection_timeout).await {
+            Ok(result) => result,
+            Err(err) => {
+                let err_msg = err.to_string();
+                log::warn!("TLS scan: connection failed for {} - {}", target, err_msg);
+                return ScanResult::Tls {
+                    targetspec: target.clone(),
+                    addr: None,
+                    error: Some(err_msg),
+                    pqc_supported: false,
+                    pqc_algos: None,
+                    hybrid_algos: None,
+                    nonpqc_algos: None,
+                    negotiated_cipher_suite: None,
+                    negotiated_group: None,
+                    negotiated_version: None,
+                    is_hello_retry_request: false,
+                    handshake_pqc: None,
+                    handshake_classical: None,
+                    handshake_tls12: None,
+                    downgrade_check: None,
+                    hndl_assessment: None,
+                    scsv_supported: None,
+                };
+            }
+        };
         if addr.is_none() {
             addr = Some(_addr.to_string());
             log::debug!("TLS scan: connected to {} ({})", target, _addr);
@@ -838,39 +838,39 @@ pub async fn tls_scan_target(
             let pqc_supported_val = pqc_supported;
 
             let result = tokio::task::block_in_place(move || {
-                let (pqc, classical, tls12, downgrade) =
+                let hs_result =
                     handshake::validate_handshake(&config_clone, &target_clone);
 
                 let hndl_input = hndl::HndlInput {
                     pqc_supported: pqc_supported_val,
-                    handshake_pqc: Some(&pqc),
-                    handshake_classical: Some(&classical),
-                    handshake_tls12: Some(&tls12),
-                    downgrade_check: Some(&downgrade),
-                    cert_key_type: pqc
+                    handshake_pqc: Some(&hs_result.pqc),
+                    handshake_classical: Some(&hs_result.classical),
+                    handshake_tls12: Some(&hs_result.tls12),
+                    downgrade_check: Some(&hs_result.downgrade),
+                    cert_key_type: hs_result.pqc
                         .peer_certificate_key_type
                         .as_deref()
-                        .or(classical.peer_certificate_key_type.as_deref())
-                        .or(tls12.peer_certificate_key_type.as_deref()),
-                    cert_key_bits: pqc
+                        .or(hs_result.classical.peer_certificate_key_type.as_deref())
+                        .or(hs_result.tls12.peer_certificate_key_type.as_deref()),
+                    cert_key_bits: hs_result.pqc
                         .peer_certificate_key_bits
-                        .or(classical.peer_certificate_key_bits)
-                        .or(tls12.peer_certificate_key_bits),
-                    cert_validity_days: pqc
+                        .or(hs_result.classical.peer_certificate_key_bits)
+                        .or(hs_result.tls12.peer_certificate_key_bits),
+                    cert_validity_days: hs_result.pqc
                         .peer_certificate_validity_days
-                        .or(classical.peer_certificate_validity_days)
-                        .or(tls12.peer_certificate_validity_days),
+                        .or(hs_result.classical.peer_certificate_validity_days)
+                        .or(hs_result.tls12.peer_certificate_validity_days),
                 };
                 let assessment = hndl::assess_hndl_risk(&hndl_input);
 
                 log::info!(
-                    "HNDL assessment for {}: {} — {}",
+                    "Risk assessment for {}: {} — {}",
                     target_clone,
                     assessment.risk_level,
                     assessment.summary
                 );
 
-                (pqc, classical, tls12, downgrade, assessment)
+                (hs_result.pqc, hs_result.classical, hs_result.tls12, hs_result.downgrade, assessment)
             });
 
             (
@@ -958,9 +958,9 @@ pub async fn tls_scan_target(
         negotiated_group: last_negotiated_group,
         negotiated_version: last_negotiated_version,
         is_hello_retry_request: last_is_hello_retry_request,
-        handshake_pqc,
-        handshake_classical,
-        handshake_tls12,
+        handshake_pqc: handshake_pqc.map(Box::new),
+        handshake_classical: handshake_classical.map(Box::new),
+        handshake_tls12: handshake_tls12.map(Box::new),
         downgrade_check,
         hndl_assessment,
         scsv_supported,

@@ -114,7 +114,7 @@ fn parse_ssh_msg_kexinit(buf: &Vec<u8>) -> Result<KexInitMsg> {
     }
 
     Ok(KexInitMsg {
-        kex_algos: kex_algos,
+        kex_algos,
         host_key_algos: srv_host_key_algos,
     })
 }
@@ -242,22 +242,22 @@ async fn ssh_echoback_idstring(stream: &TcpStream) -> Result<()> {
 pub async fn ssh_scan_target(config: &Arc<Config>, target: &Target) -> ScanResult {
     log::debug!("SSH scan: connecting to {}", target);
 
-    let ret = socket_create_and_connect(&target, config.connection_timeout).await;
-    if ret.is_err() {
-        let err = ret.unwrap_err();
-        let err_msg = err.to_string();
-        log::warn!("SSH scan: connection failed for {} - {}", target, err_msg);
-        return ScanResult::Ssh {
-            targetspec: target.clone(),
-            addr: None,
-            error: Some(err_msg),
-            pqc_supported: false,
-            pqc_algos: None,
-            nonpqc_algos: None,
-            hndl_assessment: None,
-        };
-    }
-    let (addr, stream) = ret.unwrap();
+    let (addr, stream) = match socket_create_and_connect(target, config.connection_timeout).await {
+        Ok(result) => result,
+        Err(err) => {
+            let err_msg = err.to_string();
+            log::warn!("SSH scan: connection failed for {} - {}", target, err_msg);
+            return ScanResult::Ssh {
+                targetspec: target.clone(),
+                addr: None,
+                error: Some(err_msg),
+                pqc_supported: false,
+                pqc_algos: None,
+                nonpqc_algos: None,
+                hndl_assessment: None,
+            };
+        }
+    };
     log::debug!("SSH scan: connected to {} ({})", target, addr);
 
     match ssh_echoback_idstring(&stream).await {
