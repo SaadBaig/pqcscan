@@ -133,18 +133,33 @@ fn print_scan_summary(results: &Scan) {
                                 let group = handshake_classical.as_ref()
                                     .and_then(|h| h.negotiated_group.as_deref())
                                     .unwrap_or("X25519");
-                                format!("Vulnerable key exchange algorithms: ECDHE (TLS 1.2), {} (TLS 1.3)", group)
+                                let icon = "⚠️ ";
+                                println!("  │  {} Vulnerable key exchange algorithms:", icon);
+                                println!("  │        - ECDHE (TLS 1.2)");
+                                println!("  │        - {} (TLS 1.3)", group);
+                                continue;
                             }
-                            "TLS 1.2 Static RSA Key Exchange" => "Vulnerable key exchange algorithms: static RSA (TLS 1.2) — no forward secrecy".to_string(),
+                            "TLS 1.2 Static RSA Key Exchange" => {
+                                let icon = "⚠️ ";
+                                println!("  │  {} Vulnerable key exchange algorithms:", icon);
+                                println!("  │        - static RSA (TLS 1.2) — no forward secrecy");
+                                continue;
+                            }
                             "TLS 1.2 Not Supported" => continue, // Can't reliably detect due to fingerprinting
                             "Standard Classical Key Exchange" | "Strong Classical Key Exchange" | "Finite Field DH Key Exchange" => continue,
                             "PQC Advertised But Not Negotiated" => "PQC advertised but classical chosen in practice".to_string(),
                             "Downgrade Amplifies HNDL Risk" => "Downgrade possible — attacker can force classical".to_string(),
                             "RSA-2048 Certificate" => {
-                                "Vulnerable certificate algorithms:  RSA-2048".to_string()
+                                let icon = "⚠️ ";
+                                println!("  │  {} Vulnerable certificate algorithms:", icon);
+                                println!("  │        - RSA-2048");
+                                continue;
                             }
                             "RSA Certificate" => {
-                                "Vulnerable certificate algorithms:  RSA".to_string()
+                                let icon = "⚠️ ";
+                                println!("  │  {} Vulnerable certificate algorithms:", icon);
+                                println!("  │        - RSA");
+                                continue;
                             }
                             "ECDSA Certificate" => {
                                 let hs = handshake_pqc.as_ref()
@@ -153,7 +168,10 @@ fn print_scan_summary(results: &Scan) {
                                     .or(handshake_tls12.as_ref().filter(|h| h.completed));
                                 let kt = hs.and_then(|h| h.peer_certificate_key_type.as_deref())
                                     .unwrap_or("ECDSA");
-                                format!("Vulnerable certificate algorithms:  {}", kt)
+                                let icon = "⚠️ ";
+                                println!("  │  {} Vulnerable certificate algorithms:", icon);
+                                println!("  │        - {}", kt);
+                                continue;
                             }
                             "Long-Lived Certificate" | "Short-Lived Certificate" => continue,
                             "Static RSA Key Exchange" => "Static RSA — no forward secrecy, all sessions decryptable".to_string(),
