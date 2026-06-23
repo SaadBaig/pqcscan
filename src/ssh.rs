@@ -325,7 +325,7 @@ pub async fn ssh_scan_target(config: &Arc<Config>, target: &Target) -> ScanResul
     );
     let assessment = hndl::assess_ssh_hndl_risk(pqc_supported, &pqc_algos, &nonpqc_algos);
     log::info!(
-        "SSH HNDL assessment for {}: {} — {}",
+        "SSH risk assessment for {}: {} — {}",
         target, assessment.risk_level, assessment.summary
     );
 

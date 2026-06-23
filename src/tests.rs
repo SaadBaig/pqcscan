@@ -4,54 +4,6 @@ mod tests {
     use crate::hndl::{self, HndlInput, HndlSeverity};
     use crate::utils::parse_single_target;
 
-    // ── wrap_text ──────────────────────────────────────────────
-
-    /// Word-wrap text to fit within a given width, breaking on word boundaries.
-    fn wrap_text(text: &str, width: usize) -> Vec<String> {
-        let mut lines = Vec::new();
-        let mut current_line = String::new();
-
-        for word in text.split_whitespace() {
-            if current_line.is_empty() {
-                current_line = word.to_string();
-            } else if current_line.len() + 1 + word.len() > width {
-                lines.push(current_line);
-                current_line = word.to_string();
-            } else {
-                current_line.push(' ');
-                current_line.push_str(word);
-            }
-        }
-        if !current_line.is_empty() {
-            lines.push(current_line);
-        }
-        lines
-    }
-
-    #[test]
-    fn wrap_text_short_line_unchanged() {
-        let result = wrap_text("hello world", 80);
-        assert_eq!(result, vec!["hello world"]);
-    }
-
-    #[test]
-    fn wrap_text_wraps_at_boundary() {
-        let result = wrap_text("aaa bbb ccc ddd", 7);
-        assert_eq!(result, vec!["aaa bbb", "ccc ddd"]);
-    }
-
-    #[test]
-    fn wrap_text_empty_input() {
-        let result = wrap_text("", 80);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn wrap_text_single_long_word() {
-        let result = wrap_text("superlongword", 5);
-        assert_eq!(result, vec!["superlongword"]);
-    }
-
     // ── is_pqc_group ──────────────────────────────────────────
 
     #[test]
@@ -102,7 +54,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // ── HNDL assessment ─────────────────────────────────────
+    // ── Risk assessment ─────────────────────────────────────
 
     fn make_completed_handshake(group: &str, cipher: &str, version: &str) -> HandshakeValidation {
         HandshakeValidation {

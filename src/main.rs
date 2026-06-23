@@ -72,14 +72,13 @@ fn print_scan_summary(results: &Scan) {
                     continue;
                 }
 
-                // PQC support
-                let mut algos = Vec::new();
-                if let Some(pqc) = pqc_algos { algos.extend(pqc.iter().cloned()); }
-                if let Some(hybrid) = hybrid_algos { algos.extend(hybrid.iter().cloned()); }
-                algos.sort();
-
                 // Only show PQC Support headline in quick-scan mode (no handshake validation)
                 if handshake_pqc.is_none() && handshake_tls12.is_none() {
+                    let mut algos = Vec::new();
+                    if let Some(pqc) = pqc_algos { algos.extend(pqc.iter().cloned()); }
+                    if let Some(hybrid) = hybrid_algos { algos.extend(hybrid.iter().cloned()); }
+                    algos.sort();
+
                     if *pqc_supported {
                         println!("  │  ✅ PQC Support:   Yes ({})", algos.join(", "));
                     } else {
@@ -141,7 +140,7 @@ fn print_scan_summary(results: &Scan) {
                             "PQC Advertised But Not Negotiated" => {
                                 println!("  │  ⚠️  PQC advertised but classical chosen in practice");
                             }
-                            "Downgrade Amplifies HNDL Risk" => {
+                            "Downgrade Amplifies Risk" => {
                                 println!("  │  ⚠️  Downgrade possible — attacker can force classical");
                             }
                             "RSA-2048 Certificate" => {
@@ -205,7 +204,7 @@ fn print_scan_summary(results: &Scan) {
                             "PQC Advertised But Not Negotiated" => {
                                 other_remediations.push("Verify PQC group priority in server configuration");
                             }
-                            "Downgrade Amplifies HNDL Risk" => {
+                            "Downgrade Amplifies Risk" => {
                                 other_remediations.push("Investigate why server prefers classical over PQC when both offered");
                             }
                             _ => {}
@@ -284,13 +283,13 @@ struct EmbeddedResources;
 
 const DEFAULT_NUM_THREADS: usize = 8;
 
-fn output_args(file_type: &str, req: bool) -> Vec<clap::Arg> {
+fn output_args(file_type: &str) -> Vec<clap::Arg> {
     vec![Arg::new("output")
         .short('o')
         .value_name("FILE")
         .long("output")
         .help(format!("{} file to write results to", file_type))
-        .required(req)
+        .required(false)
         .action(ArgAction::Set)]
 }
 
@@ -380,165 +379,6 @@ struct ScanWindow {
     scan_type: ScanType,
 }
 
-fn create_report(output_file: &str, input_files: &[&String]) -> Result<()> {
-    log::debug!("Initializing report data structures");
-    let mut tls_map: HashMap<String, Vec<ScanResult>> = HashMap::new();
-    let mut ssh_map: HashMap<String, Vec<ScanResult>> = HashMap::new();
-    let mut tls_hosts: BTreeSet<String> = BTreeSet::new();
-    let mut ssh_hosts: BTreeSet<String> = BTreeSet::new();
-    let mut ssh_pqc_supported_count: usize = 0;
-    let mut tls_pqc_supported_count: usize = 0;
-    let mut ssh_success_count: usize = 0;
-    let mut tls_success_count: usize = 0;
-    let mut ssh_total_count: usize = 0;
-    let mut tls_total_count: usize = 0;
-    let mut scan_windows = Vec::new();
-
-    for input_file in input_files {
-        log::debug!("Opening and parsing {}", input_file);
-
-        let file = File::open(input_file)?;
-        let scan: Scan = serde_json::from_reader(file).expect("failed to open input file");
-
-        if scan.version != crate_version!() {
-            let err = format!(
-                "Version mismatch: {} != {} in {}",
-                scan.version,
-                crate_version!(),
-                input_file
-            );
-            log::warn!("{}", err);
-            return Err(anyhow!(err));
-        }
-
-        let window = ScanWindow {
-            start_time: scan.start_time,
-            end_time: scan.end_time,
-            scan_type: scan.scan_type,
-        };
-        scan_windows.push(window);
-
-        for result in scan.results {
-            match result {
-                ScanResult::Ssh {
-                    ref targetspec,
-                    ref error,
-                    pqc_supported,
-                    ..
-                } => {
-                    ssh_hosts.insert(targetspec.host.clone());
-                    let host = targetspec.host.clone();
-                    if !ssh_map.contains_key(&host) {
-                        ssh_map.insert(host.clone(), Vec::new());
-                    }
-                    let m = ssh_map.get_mut(&host).unwrap();
-                    if error.is_none() {
-                        ssh_success_count += 1;
-                    }
-                    if pqc_supported {
-                        ssh_pqc_supported_count += 1;
-                    }
-                    ssh_total_count += 1;
-                    m.push(result);
-                }
-                ScanResult::Tls {
-                    ref targetspec,
-                    ref error,
-                    pqc_supported,
-                    ..
-                } => {
-                    tls_hosts.insert(targetspec.host.clone());
-                    let host = targetspec.host.clone();
-                    if !tls_map.contains_key(&host) {
-                        tls_map.insert(host.clone(), Vec::new());
-                    }
-                    let m = tls_map.get_mut(&host).unwrap();
-                    if error.is_none() {
-                        tls_success_count += 1;
-                    }
-                    if pqc_supported {
-                        tls_pqc_supported_count += 1;
-                    }
-                    tls_total_count += 1;
-                    m.push(result);
-                }
-                _ => {
-                    log::warn!("Skipping unexpected result type in report input");
-                    continue;
-                }
-            }
-        }
-    }
-
-    log::debug!(
-        "{} TLS results, {} SSH results",
-        tls_map.len(),
-        ssh_map.len()
-    );
-
-    let tls_fail_count = tls_total_count - tls_success_count;
-    let ssh_fail_count = ssh_total_count - ssh_success_count;
-
-    log::debug!(
-        "TLS: {} successful, {} failed, {} PQC-enabled",
-        tls_success_count,
-        tls_fail_count,
-        tls_pqc_supported_count
-    );
-    log::debug!(
-        "SSH: {} successful, {} failed, {} PQC-enabled",
-        ssh_success_count,
-        ssh_fail_count,
-        ssh_pqc_supported_count
-    );
-
-    let results: ReportResults = ReportResults {
-        tls_results: tls_map,
-        tls_sorted_hosts: tls_hosts,
-        tls_success_count,
-        tls_pqc_supported_count,
-        tls_fail_count,
-        tls_total_count,
-        ssh_results: ssh_map,
-        ssh_sorted_hosts: ssh_hosts,
-        ssh_success_count,
-        ssh_fail_count,
-        ssh_pqc_supported_count,
-        ssh_total_count,
-        scan_windows,
-    };
-
-    let templates = [
-        "macros.html",
-        "template.html",
-        "ssh_results.html",
-        "tls_results.html",
-        "summary.html",
-    ];
-    let mut tera = Tera::default();
-
-    log::debug!("Loading HTML templates");
-    for template in templates {
-        let html_file = EmbeddedResources::get(template).unwrap();
-        let html_data = std::str::from_utf8(html_file.data.as_ref())?;
-        tera.add_raw_template(template, html_data)?;
-    }
-
-    let mut ctx = Context::from_serialize(results)?;
-
-    let dt = Utc::now().format("%Y-%m-%d %H:%M:%S %Z").to_string();
-    ctx.insert("title", &dt);
-
-    log::trace!("Tera Template: {:?}", ctx);
-
-    log::debug!("Rendering HTML report to {}", output_file);
-    let f = File::create(output_file)?;
-    tera.render_to("template.html", &ctx, f)?;
-    log::info!("HTML report written to {}", output_file);
-
-    Ok(())
-}
-
 fn write_csv(path: &str, scan: &Scan) -> Result<()> {
     use std::io::Write;
     let f = File::create(path)?;
@@ -598,6 +438,35 @@ fn write_csv(path: &str, scan: &Scan) -> Result<()> {
     Ok(())
 }
 
+fn render_report(output_file: &str, results: ReportResults) -> Result<()> {
+    let templates = [
+        "macros.html",
+        "template.html",
+        "ssh_results.html",
+        "tls_results.html",
+        "summary.html",
+    ];
+    let mut tera = Tera::default();
+
+    log::debug!("Loading HTML templates");
+    for template in templates {
+        let html_file = EmbeddedResources::get(template).unwrap();
+        let html_data = std::str::from_utf8(html_file.data.as_ref())?;
+        tera.add_raw_template(template, html_data)?;
+    }
+
+    let mut ctx = Context::from_serialize(results)?;
+    let dt = Utc::now().format("%Y-%m-%d %H:%M:%S %Z").to_string();
+    ctx.insert("title", &dt);
+
+    log::debug!("Rendering HTML report to {}", output_file);
+    let f = File::create(output_file)?;
+    tera.render_to("template.html", &ctx, f)?;
+    log::info!("HTML report written to {}", output_file);
+
+    Ok(())
+}
+
 fn generate_report_from_scan(output_file: &str, scan: &Scan) -> Result<()> {
     log::debug!("Generating HTML report from scan results");
 
@@ -637,7 +506,7 @@ fn generate_report_from_scan(output_file: &str, scan: &Scan) -> Result<()> {
     let tls_fail_count = tls_total_count - tls_success_count;
     let ssh_fail_count = ssh_total_count - ssh_success_count;
 
-    let results = ReportResults {
+    render_report(output_file, ReportResults {
         tls_results: tls_map,
         tls_sorted_hosts: tls_hosts,
         tls_success_count,
@@ -655,25 +524,7 @@ fn generate_report_from_scan(output_file: &str, scan: &Scan) -> Result<()> {
             end_time: scan.end_time,
             scan_type: scan.scan_type,
         }],
-    };
-
-    let templates = ["macros.html", "template.html", "ssh_results.html", "tls_results.html", "summary.html"];
-    let mut tera = Tera::default();
-    for template in templates {
-        let html_file = EmbeddedResources::get(template).unwrap();
-        let html_data = std::str::from_utf8(html_file.data.as_ref())?;
-        tera.add_raw_template(template, html_data)?;
-    }
-
-    let mut ctx = Context::from_serialize(results)?;
-    let dt = Utc::now().format("%Y-%m-%d %H:%M:%S %Z").to_string();
-    ctx.insert("title", &dt);
-
-    let f = File::create(output_file)?;
-    tera.render_to("template.html", &ctx, f)?;
-    log::info!("HTML report written to {}", output_file);
-
-    Ok(())
+    })
 }
 
 fn main() -> Result<()> {
@@ -697,7 +548,7 @@ fn main() -> Result<()> {
                 .next_help_heading("Target")
                 .args(target_args())
                 .next_help_heading("Output")
-                .args(output_args("JSON", false))
+                .args(output_args("JSON"))
                 .next_help_heading("Scan Options")
                 .args(vec![
                     num_threads_arg(),
@@ -717,7 +568,7 @@ fn main() -> Result<()> {
                 .next_help_heading("Target")
                 .args(target_args())
                 .next_help_heading("Output")
-                .args(output_args("JSON", false))
+                .args(output_args("JSON"))
                 .next_help_heading("Scan Options")
                 .args(vec![
                     num_threads_arg(),
@@ -752,21 +603,6 @@ fn main() -> Result<()> {
                 .disable_help_flag(true)
                 .disable_version_flag(true),
         )
-        .subcommand(
-            Command::new("create-report")
-                .about("Convert JSON results to HTML report")
-                .next_help_heading("Input")
-                .args(vec![Arg::new("input")
-                    .short('i')
-                    .long("input")
-                    .value_name("JSON file")
-                    .help("JSON file(s) containing scan results ")
-                    .num_args(0..)])
-                .next_help_heading("Output")
-                .args(output_args("HTML", true))
-                .disable_help_flag(true)
-                .disable_version_flag(true),
-        )
         .get_matches();
 
     let config = Config::new();
@@ -786,9 +622,9 @@ fn main() -> Result<()> {
         validate_handshake: false,
     };
 
-    let mut output_json_file: Option<&String> = None;
+    let output_json_file: Option<&String>;
     let mut output_csv_file: Option<&String> = None;
-    let mut output_report_file: Option<&String> = None;
+    let output_report_file: Option<&String>;
 
     match matches.subcommand() {
         Some(("tls-scan", sub_matches)) => {
@@ -826,59 +662,41 @@ fn main() -> Result<()> {
             output_json_file = sub_matches.get_one::<String>("output");
             output_report_file = sub_matches.get_one::<String>("report");
         }
-        Some(("create-report", sub_matches)) => {
-            log::info!("Creating HTML report from JSON results");
-            let input_files: Vec<_> = sub_matches
-                .get_many::<String>("input")
-                .ok_or(anyhow!(
-                    "Need at least one input JSON file to convert into a report"
-                ))?
-                .collect();
-            log::info!("Processing {} input file(s)", input_files.len());
-            create_report(
-                sub_matches.get_one::<String>("output").unwrap(),
-                &input_files,
-            )?;
-            log::info!("Report created successfully");
-        }
         _ => unreachable!("somehow reached this"),
     }
 
-    /* perform scan if requested */
-    if scan.scan_type.is_some() {
-        log::info!("Initializing async runtime");
-        let rt = Runtime::new()?;
+    log::info!("Initializing async runtime");
+    let rt = Runtime::new()?;
 
-        log::info!("Starting scan execution");
-        let results = rt.block_on(scan_runner(Arc::new(config), scan));
-        rt.shutdown_background();
+    log::info!("Starting scan execution");
+    let results = rt.block_on(scan_runner(Arc::new(config), scan));
+    rt.shutdown_background();
 
-        log::info!("Scan completed. Total results: {}", results.results.len());
-        log::info!(
-            "Scan duration: {:.2}s",
-            (results.end_time - results.start_time).num_milliseconds() as f64 / 1000.0
-        );
+    log::info!("Scan completed. Total results: {}", results.results.len());
+    log::info!(
+        "Scan duration: {:.2}s",
+        (results.end_time - results.start_time).num_milliseconds() as f64 / 1000.0
+    );
 
-        print_scan_summary(&results);
+    print_scan_summary(&results);
 
-        /* write results to JSON output if requested */
-        if let Some(output_file) = output_json_file {
-            log::info!("Writing results to {}", output_file);
-            let f = File::create(output_file)?;
-            let mut writer = BufWriter::new(f);
-            serde_json::to_writer_pretty(&mut writer, &results)?;
-            log::info!("Results written successfully");
-        }
+    /* write results to JSON output if requested */
+    if let Some(output_file) = output_json_file {
+        log::info!("Writing results to {}", output_file);
+        let f = File::create(output_file)?;
+        let mut writer = BufWriter::new(f);
+        serde_json::to_writer_pretty(&mut writer, &results)?;
+        log::info!("Results written successfully");
+    }
 
-        /* write CSV output if requested */
-        if let Some(csv_file) = output_csv_file {
-            write_csv(csv_file, &results)?;
-        }
+    /* write CSV output if requested */
+    if let Some(csv_file) = output_csv_file {
+        write_csv(csv_file, &results)?;
+    }
 
-        /* generate HTML report if requested */
-        if let Some(report_file) = output_report_file {
-            generate_report_from_scan(report_file, &results)?;
-        }
+    /* generate HTML report if requested */
+    if let Some(report_file) = output_report_file {
+        generate_report_from_scan(report_file, &results)?;
     }
 
     log::info!("PQCscan finished");

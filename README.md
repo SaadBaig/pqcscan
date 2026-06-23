@@ -46,18 +46,27 @@ Completes three real TLS handshakes per target using [rustls](https://github.com
 Each handshake goes through the full lifecycle: key exchange, encrypted extensions, certificate verification, and Finished messages. The tool also tests [TLS_FALLBACK_SCSV](https://www.rfc-editor.org/rfc/rfc7507) (RFC 7507) to check if the server detects version downgrade attempts.
 
 ### Level 3: Risk Assessment
-Compares handshake results to detect **downgrade attacks** (server chose classical when PQC was offered) and runs a quantum risk assessment with eight heuristic checks:
+Compares handshake results to detect **downgrade attacks** (server chose classical when PQC was offered) and runs a quantum risk assessment. The overall rating uses a 5-tier severity scale:
 
-| Check | What it detects | Severity |
+| Rating | Icon | Meaning |
 |---|---|---|
-| No PQC key exchange | All traffic is quantum-decryptable | 🔴 CRITICAL |
-| Static RSA key exchange | TLS 1.2 with no forward secrecy | 🔴 CRITICAL |
-| TLS 1.2 fallback | Attacker can downgrade to quantum-vulnerable protocol | 🟠 HIGH |
-| PQC advertised but not negotiated | Server claims PQC but chose classical | 🟠 HIGH |
-| Downgrade amplification | Active attacker can force quantum-vulnerable exchange | 🟠 HIGH |
-| Weak classical groups | secp256r1/X25519 offer less quantum margin | 🟡 MEDIUM |
-| Long-lived certificates | Extended impersonation window | 🟡 MEDIUM |
-| RSA/ECDSA certificates | Classical keys are quantum-forgeable | 🟡 MEDIUM |
+| CRITICAL | 🔴 | No PQC — all traffic is quantum-decryptable |
+| HIGH | 🟠 | PQC advertised but not negotiated, or active downgrade risk |
+| MODERATE | 🟡 | PQC active, but legacy TLS 1.2 fallback paths remain |
+| LOW | 🟢 | PQC active, no TLS 1.2 fallback, minor concerns only |
+| INFO | ✅ | Fully quantum-safe (theoretical — requires ML-DSA certificates) |
+
+Individual findings are assessed across key exchange, protocol fallback, and certificates:
+
+| Check | What it detects |
+|---|---|
+| No PQC key exchange | All traffic is quantum-decryptable (CRITICAL) |
+| Static RSA key exchange | TLS 1.2 with no forward secrecy (CRITICAL) |
+| TLS 1.2 fallback (no PQC) | Attacker can harvest quantum-vulnerable traffic (HIGH) |
+| TLS 1.2 fallback (PQC active) | Legacy path remains but primary sessions are quantum-safe (MODERATE) |
+| PQC advertised but not negotiated | Server claims PQC but chose classical (HIGH) |
+| Downgrade amplification | Active attacker can force quantum-vulnerable exchange (HIGH) |
+| RSA/ECDSA certificates | Classical keys are quantum-forgeable — capped at MODERATE when PQC key exchange is active (requires active MitM, not passive harvest) |
 
 X.509 certificates are parsed to extract key type (RSA, ECDSA-P-256, Ed25519), key size, and validity period. SSH servers get their own risk assessment based on advertised KEX algorithms and classical fallback risk.
 
@@ -117,9 +126,6 @@ pqcscan tls-scan -T targets.txt -o results.json
 
 # Scan with HTML report
 pqcscan tls-scan -T targets.txt --validate-handshake --report report.html
-
-# Convert JSON results to HTML report
-pqcscan create-report -i results.json -o report.html
 ```
 
 ## Full Handshake Validation with Risk Assessment
@@ -141,14 +147,10 @@ One row per target with columns: host, port, protocol, pqc_supported, pqc_algori
 ## HTML Report
 
 ```bash
-# Generate directly from a scan
 pqcscan tls-scan -T targets.txt --validate-handshake --report report.html
-
-# Or convert existing JSON results
-pqcscan create-report -i results.json -o report.html
 ```
 
-The `--report` flag works on both `tls-scan` and `ssh-scan` subcommands, generating an HTML report directly from scan results without needing an intermediate JSON file.
+The `--report` flag works on both `tls-scan` and `ssh-scan` subcommands, generating an HTML report directly from scan results.
 
 ## Example Output
 
@@ -162,20 +164,21 @@ $ pqcscan tls-scan -t cloudflare.com --validate-handshake
   Scanned cloudflare.com:443 in 5.05s
 
   ┌─ cloudflare.com:443 (TLS)
-  │  ✅ PQC Support:   Yes (X25519MLKEM768)
   │
-  │  ── Handshake Validation ──
-  │  ✅ PQC-only:     X25519MLKEM768 (TLS 1.3)
+  │  🟡 Risk Assessment: MODERATE
+  │  ✅ PQC Key Exchange: X25519MLKEM768 (TLS 1.3)
   │  ✅ TLS Fallback SCSV: Supported
+  │  ⚠️  Vulnerable key exchange algorithms:
+  │        - ECDHE (TLS 1.2)
+  │        - X25519 (TLS 1.3)
+  │  ⚠️  Vulnerable certificate algorithms:
+  │        - ECDSA-P-256
   │
-  │  ── Risk Assessment (🟠 HIGH) ──
-  │  ✅ PQC active on TLS 1.3 — sessions quantum-resistant
-  │  ⚠️  Vulnerable key exchange algorithms: ECDHE (TLS 1.2), X25519 (TLS 1.3)
-  │  ⚠️  Vulnerable certificate algorithms:  ECDSA-P-256
-  │
-  │  ── Remediation ──
-  │  🔧 Plan TLS 1.2 deprecation per NIST SP 800-52 Rev. 2 (target: 2030)
-  │  🔧 Adopt ML-DSA certificates when available for quantum-safe authentication
+  │  🔧 Remediation:
+  │     Key Exchange:
+  │        - Plan TLS 1.2 deprecation per NIST SP 800-52 Rev. 2
+  │     Certificates:
+  │        - Adopt ML-DSA certificates when available
   └────────────────────────────────────────
 
 ═══════════════════════════════════════════════════════════════

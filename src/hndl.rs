@@ -463,7 +463,7 @@ fn check_downgrade_risk(input: &HndlInput, findings: &mut Vec<HndlFinding>) {
         if dc.potential_downgrade {
             findings.push(HndlFinding {
                 severity: HndlSeverity::High,
-                category: "Downgrade Amplifies HNDL Risk".to_string(),
+                category: "Downgrade Amplifies Risk".to_string(),
                 detail: "Server chose classical key exchange even when PQC was offered. \
                          An active attacker could force all connections to use \
                          quantum-vulnerable key exchange, making all traffic harvestable."
