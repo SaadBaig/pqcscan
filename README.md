@@ -21,7 +21,6 @@
   - [Risk Assessment](#risk-assessment)
 - [Validated PQC Algorithms](#validated-pqc-algorithms)
 - [How It Works](#how-it-works)
-- [Screenshots](#screenshots)
 - [Contributing](#contributing)
 
 ---
@@ -110,6 +109,7 @@ Key flags for `tls-scan`:
 - `-T FILE` — target list (one per line, `#` comments supported)
 - `-o FILE` — JSON output
 - `--csv FILE` — CSV output
+- `--xml FILE` — XML output
 - `--report FILE` — HTML report output
 - `--validate-handshake` — full handshake validation + risk assessment
 - `--only-hybrid-algos` — limit to hybrid PQC algorithms
@@ -194,24 +194,8 @@ The tool uses three components:
 
 ---
 
-# Screenshots
-
-## Main Scan Results Overview
-
-![Example Scan Results Main Overview](/doc/pqcscan_results_sample1.png)
-
-## SSH Scan Results Sample
-
-![SSH Scan Results Sample](/doc/sshscan_results_sample1.png)
-
-## TLS Scan Results Sample
-
-![TLS Scan Results Sample](/doc/tlsscan_results_sample1.png)
-
----
-
 # Contributing
 
-The code is idiomatic Rust with zero warnings. Pull requests and issues are welcome. See the `TODO` file for known areas of improvement.
+The code is idiomatic Rust with zero warnings. Pull requests and issues are welcome.
 
 The original pqcscan was created by Vincent Berg at [Anvil Secure](https://anvilsecure.com). This fork adds handshake validation, risk assessment, and related features.

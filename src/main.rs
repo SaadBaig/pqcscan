@@ -515,26 +515,169 @@ fn write_csv(path: &str, scan: &Scan) -> Result<()> {
     Ok(())
 }
 
+fn write_xml(path: &str, scan: &Scan) -> Result<()> {
+    use std::io::Write;
+    let f = File::create(path)?;
+    let mut w = BufWriter::new(f);
+
+    writeln!(w, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>")?;
+    writeln!(w, "<pqcscan version=\"{}\" start=\"{}\" end=\"{}\">",
+        scan.version, scan.start_time, scan.end_time)?;
+
+    for result in &scan.results {
+        match result {
+            ScanResult::Tls {
+                targetspec, pqc_supported, pqc_algos, hybrid_algos,
+                negotiated_group, negotiated_cipher_suite,
+                handshake_tls12, hndl_assessment, scsv_supported, handshake_pqc,
+                error, ..
+            } => {
+                writeln!(w, "  <target host=\"{}\" port=\"{}\" protocol=\"TLS\">",
+                    targetspec.host, targetspec.port)?;
+                if let Some(err) = error {
+                    writeln!(w, "    <error>{}</error>", escape_xml(err))?;
+                } else {
+                    writeln!(w, "    <pqc_supported>{}</pqc_supported>", pqc_supported)?;
+
+                    let mut algos = Vec::new();
+                    if let Some(p) = pqc_algos { algos.extend(p.iter().cloned()); }
+                    if let Some(h) = hybrid_algos { algos.extend(h.iter().cloned()); }
+                    algos.sort();
+                    if !algos.is_empty() {
+                        writeln!(w, "    <pqc_algorithms>")?;
+                        for algo in &algos {
+                            writeln!(w, "      <algorithm>{}</algorithm>", algo)?;
+                        }
+                        writeln!(w, "    </pqc_algorithms>")?;
+                    }
+
+                    if let Some(g) = negotiated_group {
+                        writeln!(w, "    <negotiated_group>{}</negotiated_group>", g)?;
+                    }
+                    if let Some(c) = negotiated_cipher_suite {
+                        writeln!(w, "    <negotiated_cipher>{}</negotiated_cipher>", c)?;
+                    }
+
+                    let tls12 = handshake_tls12.as_ref().map(|h| h.completed).unwrap_or(false);
+                    writeln!(w, "    <tls12_fallback>{}</tls12_fallback>", tls12)?;
+
+                    if let Some(scsv) = scsv_supported {
+                        writeln!(w, "    <scsv_supported>{}</scsv_supported>", scsv)?;
+                    }
+
+                    if let Some(hs) = handshake_pqc {
+                        if hs.peer_certificate_key_type.is_some() {
+                            writeln!(w, "    <certificate>")?;
+                            if let Some(kt) = &hs.peer_certificate_key_type {
+                                writeln!(w, "      <key_type>{}</key_type>", kt)?;
+                            }
+                            if let Some(kb) = hs.peer_certificate_key_bits {
+                                writeln!(w, "      <key_bits>{}</key_bits>", kb)?;
+                            }
+                            if let Some(vd) = hs.peer_certificate_validity_days {
+                                writeln!(w, "      <validity_days>{}</validity_days>", vd)?;
+                            }
+                            writeln!(w, "    </certificate>")?;
+                        }
+                    }
+
+                    if let Some(assessment) = hndl_assessment {
+                        writeln!(w, "    <risk_assessment level=\"{}\">", assessment.risk_level)?;
+                        for finding in &assessment.findings {
+                            writeln!(w, "      <finding severity=\"{}\" category=\"{}\">{}</finding>",
+                                finding.severity, escape_xml(&finding.category), escape_xml(&finding.detail))?;
+                        }
+                        writeln!(w, "    </risk_assessment>")?;
+                    }
+                }
+                writeln!(w, "  </target>")?;
+            }
+            ScanResult::Ssh {
+                targetspec, pqc_supported, pqc_algos, nonpqc_algos,
+                hndl_assessment, error, ..
+            } => {
+                writeln!(w, "  <target host=\"{}\" port=\"{}\" protocol=\"SSH\">",
+                    targetspec.host, targetspec.port)?;
+                if let Some(err) = error {
+                    writeln!(w, "    <error>{}</error>", escape_xml(err))?;
+                } else {
+                    writeln!(w, "    <pqc_supported>{}</pqc_supported>", pqc_supported)?;
+
+                    if let Some(algos) = pqc_algos {
+                        if !algos.is_empty() {
+                            writeln!(w, "    <pqc_algorithms>")?;
+                            for algo in algos {
+                                writeln!(w, "      <algorithm>{}</algorithm>", algo)?;
+                            }
+                            writeln!(w, "    </pqc_algorithms>")?;
+                        }
+                    }
+
+                    if let Some(algos) = nonpqc_algos {
+                        if !algos.is_empty() {
+                            writeln!(w, "    <classical_algorithms>")?;
+                            for algo in algos {
+                                writeln!(w, "      <algorithm>{}</algorithm>", algo)?;
+                            }
+                            writeln!(w, "    </classical_algorithms>")?;
+                        }
+                    }
+
+                    if let Some(assessment) = hndl_assessment {
+                        writeln!(w, "    <risk_assessment level=\"{}\">", assessment.risk_level)?;
+                        for finding in &assessment.findings {
+                            writeln!(w, "      <finding severity=\"{}\" category=\"{}\">{}</finding>",
+                                finding.severity, escape_xml(&finding.category), escape_xml(&finding.detail))?;
+                        }
+                        writeln!(w, "    </risk_assessment>")?;
+                    }
+                }
+                writeln!(w, "  </target>")?;
+            }
+            ScanResult::Done => {}
+        }
+    }
+
+    writeln!(w, "</pqcscan>")?;
+    log::info!("XML results written to {}", path);
+    Ok(())
+}
+
+fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+     .replace('<', "&lt;")
+     .replace('>', "&gt;")
+     .replace('"', "&quot;")
+     .replace('\'', "&apos;")
+}
+
 fn render_report(output_file: &str, results: ReportResults) -> Result<()> {
     let templates = [
-        "macros.html",
         "template.html",
-        "ssh_results.html",
-        "tls_results.html",
-        "summary.html",
     ];
     let mut tera = Tera::default();
 
-    log::debug!("Loading HTML templates");
+    log::debug!("Loading HTML template");
     for template in templates {
         let html_file = EmbeddedResources::get(template).unwrap();
         let html_data = std::str::from_utf8(html_file.data.as_ref())?;
         tera.add_raw_template(template, html_data)?;
     }
 
-    let mut ctx = Context::from_serialize(results)?;
+    // Build the scan data as a JSON blob for client-side rendering
+    let scan_data = serde_json::json!({
+        "results": results.tls_results.values()
+            .flatten()
+            .chain(results.ssh_results.values().flatten())
+            .collect::<Vec<_>>(),
+        "tls_total": results.tls_total_count,
+        "ssh_total": results.ssh_total_count,
+    });
+
+    let mut ctx = Context::new();
     let dt = Utc::now().format("%Y-%m-%d %H:%M:%S %Z").to_string();
     ctx.insert("title", &dt);
+    ctx.insert("scan_data", &scan_data.to_string());
 
     log::debug!("Rendering HTML report to {}", output_file);
     let f = File::create(output_file)?;
@@ -670,6 +813,12 @@ fn main() -> Result<()> {
                         .required(false)
                         .action(ArgAction::Set)
                         .help("Write results to a CSV file (one row per target)"),
+                    Arg::new("xml")
+                        .long("xml")
+                        .value_name("FILE")
+                        .required(false)
+                        .action(ArgAction::Set)
+                        .help("Write results to an XML file"),
                     Arg::new("report")
                         .long("report")
                         .value_name("FILE")
@@ -701,6 +850,7 @@ fn main() -> Result<()> {
 
     let output_json_file: Option<&String>;
     let mut output_csv_file: Option<&String> = None;
+    let mut output_xml_file: Option<&String> = None;
     let output_report_file: Option<&String>;
 
     match matches.subcommand() {
@@ -727,6 +877,7 @@ fn main() -> Result<()> {
             log::info!("Using {} thread(s)", scan.num_threads);
             output_json_file = sub_matches.get_one::<String>("output");
             output_csv_file = sub_matches.get_one::<String>("csv");
+            output_xml_file = sub_matches.get_one::<String>("xml");
             output_report_file = sub_matches.get_one::<String>("report");
         }
         Some(("ssh-scan", sub_matches)) => {
@@ -769,6 +920,11 @@ fn main() -> Result<()> {
     /* write CSV output if requested */
     if let Some(csv_file) = output_csv_file {
         write_csv(csv_file, &results)?;
+    }
+
+    /* write XML output if requested */
+    if let Some(xml_file) = output_xml_file {
+        write_xml(xml_file, &results)?;
     }
 
     /* generate HTML report if requested */

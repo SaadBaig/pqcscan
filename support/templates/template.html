@@ -1,124 +1,248 @@
-{% import "macros.html" as macros %}
 <!DOCTYPE html>
-<html lang="en" xmlns="http://www.w3.org/1999/html" data-bs-theme="dark">
-  <head>
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="">
-    <meta name="author" content="Anvil Secure">
-    <title>PQCScan Results - {{ title }}</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-SgOJa3DmI69IUzQ2PVdRZhwQ+dy64/BUtbMJw1MZ8t5HZApcHrRKUc4W0kG879m7" crossorigin="anonymous">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css" rel="stylesheet">
-    <style>
-      /* Scroll to Top Button */
-      #scrollToTopBtn {
-        display: none; /* Hidden by default */
-        position: fixed;
-        bottom: 30px;
-        right: 30px;
-        z-index: 1000;
-      }
-    </style>
-  </head>
-  <body> 
-    <button id="scrollToTopBtn" class="btn btn-secondary"><i class="fas fa-arrow-up"></i> Top</button>
-    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
-    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
-    <script>
-      document.addEventListener('DOMContentLoaded', (event) => {
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PQCscan Results - {{ title }}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.5/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-SgOJa3DmI69IUzQ2PVdRZhwQ+dy64/BUtbMJw1MZ8t5HZApcHrRKUc4W0kG879m7" crossorigin="anonymous">
+  <style>
+    .card-pqc { border-left: 4px solid #198754; }
+    .card-nopqc { border-left: 4px solid #dc3545; }
+    .card-error { border-left: 4px solid #6c757d; }
+    .badge-critical { background-color: #dc3545; }
+    .badge-high { background-color: #fd7e14; }
+    .badge-medium { background-color: #ffc107; color: #000; }
+    .badge-low { background-color: #198754; }
+    .badge-info { background-color: #0dcaf0; color: #000; }
+    .finding { margin: 0.25rem 0; }
+    .remediation { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid rgba(128,128,128,0.2); }
+    #scrollToTopBtn { display:none; position:fixed; bottom:30px; right:30px; z-index:1000; }
+    .stats-card { min-width: 120px; text-align: center; }
+    .filter-bar { position: sticky; top: 0; z-index: 100; padding: 0.75rem 0; }
+  </style>
+</head>
+<body>
+  <button id="scrollToTopBtn" class="btn btn-secondary" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑ Top</button>
 
-        /* setup darkmode switch and save state to local storage */
-        const htmlElement = document.documentElement;
-        const switchElement = document.getElementById('darkModeSwitch');
-        // Set the default theme to dark if no setting is found in local storage
-        const currentTheme = localStorage.getItem('bsTheme') || 'dark';
-        htmlElement.setAttribute('data-bs-theme', currentTheme);
-        switchElement.checked = currentTheme === 'dark';
-        switchElement.addEventListener('change', function () {
-            if (this.checked) {
-                htmlElement.setAttribute('data-bs-theme', 'dark');
-                localStorage.setItem('bsTheme', 'dark');
-            } else {
-                htmlElement.setAttribute('data-bs-theme', 'light');
-                localStorage.setItem('bsTheme', 'light');
-            }
-        });
+  <nav class="navbar navbar-expand-lg bg-body-tertiary">
+    <div class="container-fluid">
+      <a class="navbar-brand" href="#">PQCscan Results</a>
+      <span class="navbar-text me-3">{{ title }}</span>
+      <div class="form-check form-switch">
+        <input class="form-check-input" type="checkbox" id="darkModeSwitch" checked>
+        <label class="form-check-label" for="darkModeSwitch">Dark Mode</label>
+      </div>
+    </div>
+  </nav>
 
-        /* setup scroll to top button */
-        const scrollToTopBtn = document.getElementById("scrollToTopBtn");
-        window.onscroll = function() {
-            // Show the button when the user scrolls down 20px from the top
-            if (document.body.scrollTop > 20 || document.documentElement.scrollTop > 20) {
-                scrollToTopBtn.style.display = "block";
-            } else {
-                scrollToTopBtn.style.display = "none";
-            }
-        };
-        scrollToTopBtn.onclick = function() {
-            // Scroll to the top of the page
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        };
+  <div class="container-fluid mt-3">
+    <!-- Summary Stats -->
+    <div class="row g-3 mb-3" id="stats-row"></div>
 
-        /* reset the filter settings when switching tabs */
-        $('a[data-toggle="tab"]').on('shown.bs.tab', function (e) {
-          {{ macros::show_all_elements() }}
-          {{ macros::reset_filter_settings(type="ssh") }}
-          {{ macros::reset_filter_settings(type="tls") }}          
-        });
-    });
-    </script>
-   
-
-    <nav class="navbar navbar-expand-lg bg-body-tertiary">
-      <div class="container-fluid">
-        <a class="navbar-brand" href="#">PQCScan Results - Generated at {{ title }}</a>
-        <div class="form-check form-switch">
-          <input class="form-check-input" type="checkbox" id="darkModeSwitch" checked>
-          <label class="form-check-label" for="darkModeSwitch">Dark Mode</label>
-        </div>
+    <!-- Filters -->
+    <div class="filter-bar bg-body-tertiary rounded p-2 mb-3">
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <strong>Filter:</strong>
+        <button class="btn btn-sm btn-outline-success active" data-filter="pqc">PQC ✅</button>
+        <button class="btn btn-sm btn-outline-danger active" data-filter="nopqc">No PQC ❌</button>
+        <button class="btn btn-sm btn-outline-secondary active" data-filter="error">Errors</button>
+        <span class="ms-3"><strong>Risk:</strong></span>
+        <button class="btn btn-sm btn-outline-danger active" data-risk="Critical">🔴</button>
+        <button class="btn btn-sm btn-outline-warning active" data-risk="High">🟠</button>
+        <button class="btn btn-sm btn-outline-warning active" data-risk="Medium">🟡</button>
+        <button class="btn btn-sm btn-outline-success active" data-risk="Low">🟢</button>
+        <button class="btn btn-sm btn-outline-info active" data-risk="Info">✅</button>
+        <span class="ms-3"><strong>Protocol:</strong></span>
+        <button class="btn btn-sm btn-outline-primary active" data-proto="tls">TLS</button>
+        <button class="btn btn-sm btn-outline-primary active" data-proto="ssh">SSH</button>
+        <input type="text" class="form-control form-control-sm ms-3" id="searchBox" placeholder="Search host..." style="max-width:200px;">
       </div>
-    </nav>
-    <div style="padding: 1rem"></div>
-    <nav>
-      <ul class="nav nav-tabs" id="myTab" role="tablist">
-        <li class="nav-item active">
-          <a class="nav-link active" id="summary-tab" data-toggle="tab" href="#summary" role="tab" aria-controls="summary" aria-selected="true" aria-current="page" >Summary</a>
-        </li>
-        {% if ssh_total_count > 0 %}
-        <li class="nav-item">
-            <a class="nav-link" id="ssh-tab" data-toggle="tab" href="#ssh" role="tab" aria-controls="ssh" aria-selected="false">SSH Results</a>
-        </li>
-        {% endif %}
-        {% if tls_total_count > 0 %}
-        <li class="nav-item">
-            <a class="nav-link" id="tls-tab" shown="alert(123);" data-toggle="tab" href="#tls" role="tab" aria-controls="tls" aria-selected="false">TLS Results</a>
-        </li>
-        {% endif %}
-      </ul>
-    </nav>
-    <div class="tab-content">
-      <div class="tab-pane active" id="summary" role="tabpanel" aria-labelledby="summary-tab">
-        {% include ["summary.html"] %}
-      </div>
-      {% if ssh_total_count > 0 %}
-      <div class="tab-pane fade" id="ssh" role="tabpanel" aria-labelledby="ssh-tab">
-        {% include ["ssh_results.html"] %}
-      </div>
-      {% endif %}
-      {% if tls_total_count > 0 %}
-      <div class="tab-pane fade" id="tls" role="tabpanel" aria-labelledby="tls-tab">
-        {% include ["tls_results.html"] %}
-      </div>
-      {% endif %}
     </div>
 
-    <div style="padding: 1rem"></div>
-    <footer class="text-center mt-auto py-3 navbar navbar-expand-lg bg-body-tertiary">
-       <div class="col-md-12 text-center text-muted">
-         <a href="https://github.com/anvilsecure/pqcscan/">PQCScan</a> - Copyright &copy; 2025 - <a href="https://anvilsecure.com">Anvil Secure</a>
-      </div>
-    </footer>
+    <!-- Results -->
+    <div id="results-container" class="row g-3"></div>
+  </div>
 
-  </body>
+  <footer class="text-center mt-4 py-3 bg-body-tertiary">
+    <a href="https://github.com/anvilsecure/pqcscan/">PQCscan</a> - Copyright &copy; 2025 - <a href="https://anvilsecure.com">Anvil Secure</a>
+  </footer>
+
+  <script>
+    // Embedded scan data (generated by pqcscan)
+    const SCAN_DATA = {{ scan_data | safe }};
+
+    // Parse results
+    const results = [];
+    for (const r of SCAN_DATA.results) {
+      if (r.Tls) {
+        r.Tls._proto = 'tls';
+        results.push(r.Tls);
+      } else if (r.Ssh) {
+        r.Ssh._proto = 'ssh';
+        results.push(r.Ssh);
+      }
+    }
+
+    // Stats
+    const stats = {
+      total: results.length,
+      pqc: results.filter(r => r.pqc_supported && !r.error).length,
+      nopqc: results.filter(r => !r.pqc_supported && !r.error).length,
+      errors: results.filter(r => r.error).length,
+      tls: results.filter(r => r._proto === 'tls').length,
+      ssh: results.filter(r => r._proto === 'ssh').length,
+    };
+
+    function renderStats() {
+      const row = document.getElementById('stats-row');
+      row.innerHTML = `
+        <div class="col-auto"><div class="card stats-card p-2"><div class="card-body p-2"><h5>${stats.total}</h5><small>Total</small></div></div></div>
+        <div class="col-auto"><div class="card stats-card p-2"><div class="card-body p-2"><h5 class="text-success">${stats.pqc}</h5><small>PQC</small></div></div></div>
+        <div class="col-auto"><div class="card stats-card p-2"><div class="card-body p-2"><h5 class="text-danger">${stats.nopqc}</h5><small>No PQC</small></div></div></div>
+        <div class="col-auto"><div class="card stats-card p-2"><div class="card-body p-2"><h5 class="text-secondary">${stats.errors}</h5><small>Errors</small></div></div></div>
+        ${stats.tls > 0 ? `<div class="col-auto"><div class="card stats-card p-2"><div class="card-body p-2"><h5>${stats.tls}</h5><small>TLS</small></div></div></div>` : ''}
+        ${stats.ssh > 0 ? `<div class="col-auto"><div class="card stats-card p-2"><div class="card-body p-2"><h5>${stats.ssh}</h5><small>SSH</small></div></div></div>` : ''}
+      `;
+    }
+
+    function riskBadge(level) {
+      if (!level) return '';
+      const cls = level === 'Critical' ? 'critical' : level === 'High' ? 'high' : level === 'Medium' ? 'medium' : level === 'Low' ? 'low' : 'info';
+      const icon = level === 'Critical' ? '🔴' : level === 'High' ? '🟠' : level === 'Medium' ? '🟡' : level === 'Low' ? '🟢' : '✅';
+      return `<span class="badge badge-${cls}">${icon} ${level.toUpperCase()}</span>`;
+    }
+
+    function renderResult(r) {
+      const host = r.targetspec.host + ':' + r.targetspec.port;
+      const proto = r._proto.toUpperCase();
+      const risk = r.hndl_assessment ? r.hndl_assessment.risk_level : null;
+
+      if (r.error) {
+        return `<div class="col-12 col-md-6 col-xl-4 result-card" data-pqc="error" data-risk="" data-proto="${r._proto}" data-host="${host}">
+          <div class="card card-error h-100"><div class="card-body">
+            <h6 class="card-title">${host} <small class="text-muted">(${proto})</small></h6>
+            <p class="text-danger mb-0"><small>${r.error}</small></p>
+          </div></div></div>`;
+      }
+
+      const pqcStatus = r.pqc_supported;
+      const cardClass = pqcStatus ? 'card-pqc' : 'card-nopqc';
+      const algos = [...(r.pqc_algos || []), ...(r.hybrid_algos || [])].sort();
+
+      let findings = '';
+      if (r.hndl_assessment) {
+        for (const f of r.hndl_assessment.findings) {
+          const icon = f.severity === 'Info' ? '✅' : '⚠️';
+          findings += `<div class="finding"><small>${icon} <strong>${f.category}</strong></small></div>`;
+        }
+      }
+
+      // Handshake info for TLS
+      let handshake = '';
+      if (r._proto === 'tls' && r.handshake_pqc) {
+        const hs = r.handshake_pqc;
+        if (hs.completed) {
+          handshake += `<div class="finding"><small>✅ PQC Key Exchange: ${hs.negotiated_group || '-'}</small></div>`;
+        } else {
+          handshake += `<div class="finding"><small>❌ PQC Key Exchange: Failed</small></div>`;
+        }
+      }
+      if (r.scsv_supported === true) handshake += `<div class="finding"><small>✅ SCSV: Supported</small></div>`;
+      else if (r.scsv_supported === false) handshake += `<div class="finding"><small>❌ SCSV: Not supported</small></div>`;
+
+      return `<div class="col-12 col-md-6 col-xl-4 result-card" data-pqc="${pqcStatus ? 'pqc' : 'nopqc'}" data-risk="${risk || ''}" data-proto="${r._proto}" data-host="${host}">
+        <div class="card ${cardClass} h-100"><div class="card-body">
+          <div class="d-flex justify-content-between align-items-start">
+            <h6 class="card-title mb-1">${host} <small class="text-muted">(${proto})</small></h6>
+            ${riskBadge(risk)}
+          </div>
+          <div class="mb-1">
+            ${pqcStatus ? `<small class="text-success">✅ PQC: ${algos.join(', ') || 'Yes'}</small>` : '<small class="text-danger">❌ No PQC</small>'}
+          </div>
+          ${handshake}
+          ${findings}
+        </div></div></div>`;
+    }
+
+    function renderAll() {
+      const container = document.getElementById('results-container');
+      container.innerHTML = results.map(renderResult).join('');
+    }
+
+    // Filtering
+    const activeFilters = { pqc: true, nopqc: true, error: true };
+    const activeRisks = { Critical: true, High: true, Medium: true, Low: true, Info: true };
+    const activeProtos = { tls: true, ssh: true };
+    let searchTerm = '';
+
+    function applyFilters() {
+      document.querySelectorAll('.result-card').forEach(card => {
+        const pqc = card.dataset.pqc;
+        const risk = card.dataset.risk;
+        const proto = card.dataset.proto;
+        const host = card.dataset.host.toLowerCase();
+
+        const matchFilter = activeFilters[pqc];
+        const matchRisk = !risk || activeRisks[risk];
+        const matchProto = activeProtos[proto];
+        const matchSearch = !searchTerm || host.includes(searchTerm);
+
+        card.style.display = (matchFilter && matchRisk && matchProto && matchSearch) ? '' : 'none';
+      });
+    }
+
+    document.querySelectorAll('[data-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.filter;
+        activeFilters[key] = !activeFilters[key];
+        btn.classList.toggle('active');
+        applyFilters();
+      });
+    });
+
+    document.querySelectorAll('[data-risk]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.risk;
+        activeRisks[key] = !activeRisks[key];
+        btn.classList.toggle('active');
+        applyFilters();
+      });
+    });
+
+    document.querySelectorAll('[data-proto]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.proto;
+        activeProtos[key] = !activeProtos[key];
+        btn.classList.toggle('active');
+        applyFilters();
+      });
+    });
+
+    document.getElementById('searchBox').addEventListener('input', (e) => {
+      searchTerm = e.target.value.toLowerCase();
+      applyFilters();
+    });
+
+    // Dark mode
+    const darkSwitch = document.getElementById('darkModeSwitch');
+    const theme = localStorage.getItem('bsTheme') || 'dark';
+    document.documentElement.setAttribute('data-bs-theme', theme);
+    darkSwitch.checked = theme === 'dark';
+    darkSwitch.addEventListener('change', function() {
+      const t = this.checked ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-bs-theme', t);
+      localStorage.setItem('bsTheme', t);
+    });
+
+    // Scroll to top
+    window.onscroll = () => {
+      document.getElementById('scrollToTopBtn').style.display =
+        (document.documentElement.scrollTop > 200) ? 'block' : 'none';
+    };
+
+    // Init
+    renderStats();
+    renderAll();
+  </script>
+</body>
 </html>
