@@ -160,6 +160,15 @@ fn print_scan_summary(results: &Scan) {
                                 println!("  │  ⚠️  Vulnerable certificate algorithms:");
                                 println!("  │        - {}", kt);
                             }
+                            "PQC Certificate" => {
+                                let hs = handshake_pqc.as_ref()
+                                    .filter(|h| h.completed)
+                                    .or(handshake_classical.as_ref().filter(|h| h.completed))
+                                    .or(handshake_tls12.as_ref().filter(|h| h.completed));
+                                let kt = hs.and_then(|h| h.peer_certificate_key_type.as_deref())
+                                    .unwrap_or("ML-DSA");
+                                println!("  │  ✅ PQC Certificate: {}", kt);
+                            }
                             "Long-Lived Certificate" | "Short-Lived Certificate" => continue,
                             "Static RSA Key Exchange" => {
                                 println!("  │  ⚠️  Static RSA — no forward secrecy, all sessions decryptable");
@@ -199,6 +208,9 @@ fn print_scan_summary(results: &Scan) {
                             }
                             "ECDSA Certificate" => {
                                 cert_remediations.push("Adopt ML-DSA certificates when available");
+                            }
+                            "PQC Certificate" => {
+                                // No remediation needed — cert is already quantum-safe
                             }
                             "PQC Advertised But Not Negotiated" => {
                                 other_remediations.push("Verify PQC group priority in server configuration");

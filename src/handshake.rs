@@ -293,6 +293,7 @@ fn parse_leaf_certificate(cert_der: &CertificateDer<'_>) -> CertInfo {
     // Public key type and size
     let spki = cert.public_key();
     let key_algo_oid = &spki.algorithm.algorithm;
+    let oid_str = format!("{}", key_algo_oid);
     let (key_type, key_bits) = if key_algo_oid == &oid_registry::OID_PKCS1_RSAENCRYPTION {
         let bits = spki.parsed().ok().map(|pk| match pk {
             x509_parser::public_key::PublicKey::RSA(rsa) => rsa.key_size() as u32,
@@ -328,6 +329,33 @@ fn parse_leaf_certificate(cert_der: &CertificateDer<'_>) -> CertInfo {
         ("Ed25519".to_string(), Some(256))
     } else if key_algo_oid == &oid_registry::OID_SIG_ED448 {
         ("Ed448".to_string(), Some(448))
+    // ML-DSA (FIPS 204) — Module-Lattice-Based Digital Signature Algorithm
+    } else if oid_str == "2.16.840.1.101.3.4.3.17" {
+        ("ML-DSA-44".to_string(), None)
+    } else if oid_str == "2.16.840.1.101.3.4.3.18" {
+        ("ML-DSA-65".to_string(), None)
+    } else if oid_str == "2.16.840.1.101.3.4.3.19" {
+        ("ML-DSA-87".to_string(), None)
+    // SLH-DSA (FIPS 205) — Stateless Hash-Based Digital Signature Algorithm
+    } else if oid_str.starts_with("2.16.840.1.101.3.4.3.") {
+        // OIDs 20-31 cover the 12 SLH-DSA parameter sets (SHA2/SHAKE × 128f/128s/192f/192s/256f/256s)
+        let suffix = oid_str.strip_prefix("2.16.840.1.101.3.4.3.").unwrap_or("");
+        let variant = match suffix {
+            "20" => "SLH-DSA-SHA2-128s",
+            "21" => "SLH-DSA-SHA2-128f",
+            "22" => "SLH-DSA-SHA2-192s",
+            "23" => "SLH-DSA-SHA2-192f",
+            "24" => "SLH-DSA-SHA2-256s",
+            "25" => "SLH-DSA-SHA2-256f",
+            "26" => "SLH-DSA-SHAKE-128s",
+            "27" => "SLH-DSA-SHAKE-128f",
+            "28" => "SLH-DSA-SHAKE-192s",
+            "29" => "SLH-DSA-SHAKE-192f",
+            "30" => "SLH-DSA-SHAKE-256s",
+            "31" => "SLH-DSA-SHAKE-256f",
+            _ => "SLH-DSA",
+        };
+        (variant.to_string(), None)
     } else {
         (format!("unknown({})", key_algo_oid), None)
     };

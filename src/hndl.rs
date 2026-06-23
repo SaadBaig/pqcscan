@@ -385,6 +385,15 @@ fn check_certificate_risks(input: &HndlInput, findings: &mut Vec<HndlFinding>) {
                     key_type
                 ),
             });
+        } else if key_upper.contains("ML-DSA") || key_upper.contains("SLH-DSA") {
+            findings.push(HndlFinding {
+                severity: HndlSeverity::Info,
+                category: "PQC Certificate".to_string(),
+                detail: format!(
+                    "Server uses {} certificate — quantum-safe authentication.",
+                    key_type
+                ),
+            });
         }
     }
 

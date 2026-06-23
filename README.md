@@ -9,71 +9,20 @@
 
 ## Table of Contents
 
-- [What PQCscan does](#what-pqcscan-does)
-  - [Level 1: Advertisement Detection](#level-1-advertisement-detection-default)
-  - [Level 2: Full Handshake Validation](#level-2-full-handshake-validation---validate-handshake)
-  - [Level 3: Risk Assessment](#level-3-risk-assessment)
-- [Validated PQC Algorithms](#validated-pqc-algorithms)
 - [Installation](#installation)
 - [Usage](#usage)
   - [Quick Scan](#quick-scan-advertisement-detection)
   - [Full Handshake Validation with Risk Assessment](#full-handshake-validation-with-risk-assessment)
-  - [CSV Export](#csv-export)
   - [Example Output](#example-output)
   - [All Options](#all-options)
+- [What PQCscan does](#what-pqcscan-does)
+  - [Advertisement Detection](#advertisement-detection-default)
+  - [Full Handshake Validation](#full-handshake-validation---validate-handshake)
+  - [Risk Assessment](#risk-assessment)
+- [Validated PQC Algorithms](#validated-pqc-algorithms)
 - [How It Works](#how-it-works)
 - [Screenshots](#screenshots)
 - [Contributing](#contributing)
-
----
-
-# What PQCscan does
-
-**pqcscan** scans SSH and TLS servers for post-quantum cryptography support. It operates at three levels of depth:
-
-### Level 1: Advertisement Detection (default)
-Sends raw TLS ClientHello messages to probe which PQC key exchange groups a server accepts. Parses the ServerHello to extract the negotiated cipher suite, key exchange group, TLS version, and detects HelloRetryRequests (RFC 8446). For SSH, reads the server's `SSH_MSG_KEXINIT` to identify PQC KEX algorithms.
-
-### Level 2: Full Handshake Validation (`--validate-handshake`)
-Completes three real TLS handshakes per target using [rustls](https://github.com/rustls/rustls):
-
-1. **PQC-only** (TLS 1.3) — offers only PQC key exchange groups; if the server doesn't support PQC, the handshake fails
-2. **Classical-only** (TLS 1.3) — excludes all PQC groups to test fallback behavior
-3. **TLS 1.2 probe** — tests whether the server accepts the legacy protocol
-
-Each handshake goes through the full lifecycle: key exchange, encrypted extensions, certificate exchange, and Finished messages. The tool also tests [TLS_FALLBACK_SCSV](https://www.rfc-editor.org/rfc/rfc7507) (RFC 7507) to check if the server detects version downgrade attempts.
-
-### Level 3: Risk Assessment
-Compares handshake results to detect **downgrade attacks** (server chose classical when PQC was offered) and runs a quantum risk assessment. The overall rating uses a 5-tier severity scale:
-
-| Rating | Icon | Meaning |
-|---|---|---|
-| CRITICAL | 🔴 | No PQC — all traffic is quantum-decryptable |
-| HIGH | 🟠 | PQC advertised but not negotiated, or active downgrade risk |
-| MEDIUM | 🟡 | PQC active, residual classical concerns (TLS 1.2 fallback, classical certificates) |
-| LOW | 🟢 | PQC active, no TLS 1.2 fallback, minor concerns only |
-| INFO | ✅ | Fully quantum-safe (theoretical — requires ML-DSA certificates) |
-
-X.509 certificates are parsed to extract key type (RSA, ECDSA-P-256, Ed25519), key size, and validity period. Certificate findings are capped at MEDIUM when PQC key exchange is active — cert forgery requires an active MitM, not passive harvest. SSH servers get their own risk assessment based on advertised KEX algorithms and classical fallback risk.
-
----
-
-# Validated PQC Algorithms
-
-The tool covers all NIST FIPS 203 (ML-KEM) key exchange variants deployed in TLS today:
-
-| Algorithm | Type |
-|---|---|
-| ML-KEM-512 | Standalone |
-| ML-KEM-768 | Standalone |
-| ML-KEM-1024 | Standalone |
-| X25519MLKEM768 | Hybrid (X25519 + ML-KEM-768) |
-| SECP256R1MLKEM768 | Hybrid (P-256 + ML-KEM-768) |
-| SECP384R1MLKEM1024 | Hybrid (P-384 + ML-KEM-1024) |
-
-For SSH, the tool identifies PQC KEX algorithms including `sntrup761x25519-sha512` (OpenSSH) and `mlkem768x25519-sha256` (newer implementations).
-
-ML-DSA (FIPS 204) and SLH-DSA (FIPS 205) signature algorithms are not yet covered — no production TLS servers use PQC certificates today.
 
 ---
 
@@ -118,14 +67,6 @@ pqcscan tls-scan -t cloudflare.com --validate-handshake
 
 This performs three real handshakes, tests SCSV fallback signaling, parses the server certificate, and produces a risk rating.
 
-## CSV Export
-
-```bash
-pqcscan tls-scan -T targets.txt --validate-handshake --csv results.csv
-```
-
-One row per target with columns: host, port, protocol, pqc_supported, pqc_algorithms, negotiated_group, negotiated_cipher, tls12_fallback, risk_level, scsv_supported, cert_key_type, cert_key_bits, cert_validity_days.
-
 ## Example Output
 
 ```
@@ -158,12 +99,6 @@ $ pqcscan tls-scan -t cloudflare.com --validate-handshake
 ═══════════════════════════════════════════════════════════════
 ```
 
-## Verbose Logging
-
-```bash
-RUST_LOG=debug pqcscan tls-scan -t example.com --validate-handshake
-```
-
 ## All Options
 
 ```
@@ -187,6 +122,58 @@ Key flags for `ssh-scan`:
 - `-o FILE` — JSON output
 - `--report FILE` — HTML report output
 - `--num-threads N` — parallel scan threads (default: 8)
+
+Verbose logging: `RUST_LOG=debug pqcscan tls-scan -t example.com --validate-handshake`
+
+---
+
+# What PQCscan does
+
+**pqcscan** scans SSH and TLS servers for post-quantum cryptography support.
+
+### Advertisement Detection (default)
+Sends raw TLS ClientHello messages to probe which PQC key exchange groups a server accepts. Parses the ServerHello to extract the negotiated cipher suite, key exchange group, TLS version, and detects HelloRetryRequests (RFC 8446). For SSH, reads the server's `SSH_MSG_KEXINIT` to identify PQC KEX algorithms.
+
+### Full Handshake Validation (`--validate-handshake`)
+Completes three real TLS handshakes per target using [rustls](https://github.com/rustls/rustls):
+
+1. **PQC-only** (TLS 1.3) — offers only PQC key exchange groups; if the server doesn't support PQC, the handshake fails
+2. **Classical-only** (TLS 1.3) — excludes all PQC groups to test fallback behavior
+3. **TLS 1.2 probe** — tests whether the server accepts the legacy protocol
+
+Each handshake goes through the full lifecycle: key exchange, encrypted extensions, certificate exchange, and Finished messages. The tool also tests [TLS_FALLBACK_SCSV](https://www.rfc-editor.org/rfc/rfc7507) (RFC 7507) to check if the server detects version downgrade attempts.
+
+### Risk Assessment
+Compares handshake results to detect **downgrade attacks** (server chose classical when PQC was offered) and runs a quantum risk assessment. The overall rating uses a 5-tier severity scale:
+
+| Rating | Icon | Meaning |
+|---|---|---|
+| CRITICAL | 🔴 | No PQC — all traffic is quantum-decryptable |
+| HIGH | 🟠 | PQC advertised but not negotiated, or active downgrade risk |
+| MEDIUM | 🟡 | PQC active, residual classical concerns (TLS 1.2 fallback, classical certificates) |
+| LOW | 🟢 | PQC active, no TLS 1.2 fallback, minor concerns only |
+| INFO | ✅ | Fully quantum-safe (theoretical — requires ML-DSA certificates) |
+
+X.509 certificates are parsed to extract key type (RSA, ECDSA-P-256, Ed25519), key size, and validity period. Certificate findings are capped at MEDIUM when PQC key exchange is active — cert forgery requires an active MitM, not passive harvest. SSH servers get their own risk assessment based on advertised KEX algorithms and classical fallback risk.
+
+---
+
+# Validated PQC Algorithms
+
+The tool covers all NIST FIPS 203 (ML-KEM) key exchange variants deployed in TLS today:
+
+| Algorithm | Type |
+|---|---|
+| ML-KEM-512 | Standalone |
+| ML-KEM-768 | Standalone |
+| ML-KEM-1024 | Standalone |
+| X25519MLKEM768 | Hybrid (X25519 + ML-KEM-768) |
+| SECP256R1MLKEM768 | Hybrid (P-256 + ML-KEM-768) |
+| SECP384R1MLKEM1024 | Hybrid (P-384 + ML-KEM-1024) |
+
+For SSH, the tool identifies PQC KEX algorithms including `sntrup761x25519-sha512` (OpenSSH) and `mlkem768x25519-sha256` (newer implementations).
+
+For certificates, the tool recognizes ML-DSA (FIPS 204) and SLH-DSA (FIPS 205) signature algorithms. Servers presenting PQC certificates receive no certificate vulnerability finding, enabling them to reach LOW or INFO risk ratings.
 
 ---
 
