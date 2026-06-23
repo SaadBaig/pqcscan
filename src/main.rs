@@ -247,6 +247,7 @@ fn print_scan_summary(results: &Scan) {
                 error,
                 pqc_supported,
                 pqc_algos,
+                nonpqc_algos,
                 hndl_assessment,
                 ..
             } => {
@@ -261,7 +262,9 @@ fn print_scan_summary(results: &Scan) {
 
                 if *pqc_supported {
                     let algos = pqc_algos.as_ref().map(|a| {
-                        let mut s = a.clone(); s.sort(); s.join(", ")
+                        let mut s = a.clone();
+                        s.sort();
+                        s.join(", ")
                     }).unwrap_or_default();
                     println!("  │  PQC Support:    ✅ Yes ({})", algos);
                 } else {
@@ -275,7 +278,71 @@ fn print_scan_summary(results: &Scan) {
                         crate::hndl::HndlSeverity::Low => "🟢",
                         crate::hndl::HndlSeverity::Info => "✅",
                     };
-                    println!("  │  Risk:           {} {}", risk_icon, hndl.risk_level);
+                    println!("  │");
+                    println!("  │  {} Risk Assessment: {}", risk_icon, hndl.risk_level);
+
+                    // Show findings
+                    for finding in &hndl.findings {
+                        let icon = match finding.severity {
+                            crate::hndl::HndlSeverity::Info => "✅",
+                            _ => "⚠️ ",
+                        };
+                        match finding.category.as_str() {
+                            "No PQC Key Exchange" => {
+                                println!("  │  {} No PQC — all sessions quantum-decryptable", icon);
+                            }
+                            "PQC KEX Advertised (Hybrid)" | "PQC KEX Advertised" => {
+                                println!("  │  {} PQC KEX active — sessions quantum-resistant", icon);
+                            }
+                            "Weak Classical KEX Available" => {
+                                println!("  │  {} Vulnerable KEX algorithms (weak):", icon);
+                                if let Some(algos) = nonpqc_algos {
+                                    for algo in algos {
+                                        if !algo.starts_with("kex-strict-") && !algo.starts_with("ext-info-") {
+                                            println!("  │        - {}", algo);
+                                        }
+                                    }
+                                }
+                            }
+                            "Classical KEX Fallback Available" => {
+                                println!("  │  {} Vulnerable KEX algorithms:", icon);
+                                if let Some(algos) = nonpqc_algos {
+                                    for algo in algos {
+                                        if !algo.starts_with("kex-strict-") && !algo.starts_with("ext-info-") {
+                                            println!("  │        - {}", algo);
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {
+                                println!("  │  {} {}", icon, finding.category);
+                            }
+                        }
+                    }
+
+                    // Remediation
+                    let mut remediations: Vec<&str> = Vec::new();
+                    for finding in &hndl.findings {
+                        match finding.category.as_str() {
+                            "No PQC Key Exchange" => {
+                                remediations.push("Enable sntrup761x25519-sha512 or mlkem768x25519-sha256");
+                            }
+                            "Weak Classical KEX Available" => {
+                                remediations.push("Remove weak classical KEX (diffie-hellman-group14)");
+                            }
+                            "Classical KEX Fallback Available" => {
+                                remediations.push("Prioritize PQC KEX in server configuration");
+                            }
+                            _ => {}
+                        }
+                    }
+                    if !remediations.is_empty() {
+                        println!("  │");
+                        println!("  │  🔧 Remediation:");
+                        for r in &remediations {
+                            println!("  │        - {}", r);
+                        }
+                    }
                 }
                 println!("  └────────────────────────────────────────");
                 println!();

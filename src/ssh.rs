@@ -299,6 +299,12 @@ pub async fn ssh_scan_target(config: &Arc<Config>, target: &Target) -> ScanResul
             let kex_algos = &config.ssh_config.kex_algos;
 
             for k in ki.kex_algos {
+                // Skip SSH protocol extensions — these aren't KEX algorithms
+                if k.starts_with("kex-strict-") || k.starts_with("ext-info-") {
+                    log::trace!("SSH scan: skipping protocol extension {} on {}", k, target);
+                    continue;
+                }
+
                 match kex_algos.get(&k) {
                     None => {
                         log::warn!("Unknown SSH algorithm {} found on {}", k, target);

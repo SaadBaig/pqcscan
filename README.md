@@ -53,7 +53,7 @@ cargo build --release
 pqcscan tls-scan -t cloudflare.com
 
 # Scan a single SSH target
-pqcscan ssh-scan -t github.com:22
+pqcscan ssh-scan -t github.com
 
 # Scan from a target list with JSON output
 pqcscan tls-scan -T targets.txt -o results.json
@@ -171,7 +171,12 @@ The tool covers all NIST FIPS 203 (ML-KEM) key exchange variants deployed in TLS
 | SECP256R1MLKEM768 | Hybrid (P-256 + ML-KEM-768) |
 | SECP384R1MLKEM1024 | Hybrid (P-384 + ML-KEM-1024) |
 
-For SSH, the tool identifies PQC KEX algorithms including `sntrup761x25519-sha512` (OpenSSH) and `mlkem768x25519-sha256` (newer implementations).
+For SSH, the tool identifies PQC KEX algorithms:
+
+| Algorithm | Type |
+|---|---|
+| sntrup761x25519-sha512 | Hybrid (NTRU Prime + X25519) |
+| mlkem768x25519-sha256 | Hybrid (ML-KEM-768 + X25519) |
 
 For certificates, the tool recognizes ML-DSA (FIPS 204) and SLH-DSA (FIPS 205) signature algorithms. Servers presenting PQC certificates receive no certificate vulnerability finding, enabling them to reach LOW or INFO risk ratings.
 
