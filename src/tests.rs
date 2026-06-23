@@ -141,7 +141,7 @@ mod tests {
         };
 
         let result = hndl::assess_hndl_risk(&input);
-        assert_eq!(result.risk_level, HndlSeverity::Moderate);
+        assert_eq!(result.risk_level, HndlSeverity::Medium);
         assert!(!result.quantum_vulnerable);
         assert!(result.findings.iter().any(|f| f.category == "TLS 1.2 Fallback Available"));
     }
@@ -226,8 +226,8 @@ mod tests {
         };
 
         let result = hndl::assess_hndl_risk(&input);
-        // With PQC active, RSA-2048 cert is capped at Moderate (not High)
-        assert!(result.findings.iter().any(|f| f.severity == HndlSeverity::Moderate && f.category.contains("RSA")));
+        // With PQC active, RSA-2048 cert is capped at Medium (not High)
+        assert!(result.findings.iter().any(|f| f.severity == HndlSeverity::Medium && f.category.contains("RSA")));
         assert!(!result.quantum_vulnerable);
     }
 }

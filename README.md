@@ -43,7 +43,7 @@ Completes three real TLS handshakes per target using [rustls](https://github.com
 2. **Classical-only** (TLS 1.3) — excludes all PQC groups to test fallback behavior
 3. **TLS 1.2 probe** — tests whether the server accepts the legacy protocol
 
-Each handshake goes through the full lifecycle: key exchange, encrypted extensions, certificate verification, and Finished messages. The tool also tests [TLS_FALLBACK_SCSV](https://www.rfc-editor.org/rfc/rfc7507) (RFC 7507) to check if the server detects version downgrade attempts.
+Each handshake goes through the full lifecycle: key exchange, encrypted extensions, certificate exchange, and Finished messages. The tool also tests [TLS_FALLBACK_SCSV](https://www.rfc-editor.org/rfc/rfc7507) (RFC 7507) to check if the server detects version downgrade attempts.
 
 ### Level 3: Risk Assessment
 Compares handshake results to detect **downgrade attacks** (server chose classical when PQC was offered) and runs a quantum risk assessment. The overall rating uses a 5-tier severity scale:
@@ -52,7 +52,7 @@ Compares handshake results to detect **downgrade attacks** (server chose classic
 |---|---|---|
 | CRITICAL | 🔴 | No PQC — all traffic is quantum-decryptable |
 | HIGH | 🟠 | PQC advertised but not negotiated, or active downgrade risk |
-| MODERATE | 🟡 | PQC active, but legacy TLS 1.2 fallback paths remain |
+| MEDIUM | 🟡 | PQC active, residual classical concerns (TLS 1.2 fallback, classical certificates) |
 | LOW | 🟢 | PQC active, no TLS 1.2 fallback, minor concerns only |
 | INFO | ✅ | Fully quantum-safe (theoretical — requires ML-DSA certificates) |
 
@@ -63,10 +63,10 @@ Individual findings are assessed across key exchange, protocol fallback, and cer
 | No PQC key exchange | All traffic is quantum-decryptable (CRITICAL) |
 | Static RSA key exchange | TLS 1.2 with no forward secrecy (CRITICAL) |
 | TLS 1.2 fallback (no PQC) | Attacker can harvest quantum-vulnerable traffic (HIGH) |
-| TLS 1.2 fallback (PQC active) | Legacy path remains but primary sessions are quantum-safe (MODERATE) |
+| TLS 1.2 fallback (PQC active) | Legacy path remains but primary sessions are quantum-safe (MEDIUM) |
 | PQC advertised but not negotiated | Server claims PQC but chose classical (HIGH) |
 | Downgrade amplification | Active attacker can force quantum-vulnerable exchange (HIGH) |
-| RSA/ECDSA certificates | Classical keys are quantum-forgeable — capped at MODERATE when PQC key exchange is active (requires active MitM, not passive harvest) |
+| RSA/ECDSA certificates | Classical keys are quantum-forgeable — capped at MEDIUM when PQC key exchange is active (requires active MitM, not passive harvest) |
 
 X.509 certificates are parsed to extract key type (RSA, ECDSA-P-256, Ed25519), key size, and validity period. SSH servers get their own risk assessment based on advertised KEX algorithms and classical fallback risk.
 
@@ -165,7 +165,7 @@ $ pqcscan tls-scan -t cloudflare.com --validate-handshake
 
   ┌─ cloudflare.com:443 (TLS)
   │
-  │  🟡 Risk Assessment: MODERATE
+  │  🟡 Risk Assessment: MEDIUM
   │  ✅ PQC Key Exchange: X25519MLKEM768 (TLS 1.3)
   │  ✅ TLS Fallback SCSV: Supported
   │  ⚠️  Vulnerable key exchange algorithms:
@@ -218,7 +218,7 @@ Key flags for `ssh-scan`:
 
 # How It Works
 
-The tool uses two complementary approaches:
+The tool uses three components:
 
 **Raw byte scanner** (`src/tls.rs`) — Constructs TLS ClientHello messages from scratch using `byteorder`, sends them over TCP, and parses the ServerHello response byte by byte. This is how the original pqcscan works. It tests each PQC group individually by offering it as the only supported group and checking if the server accepts or rejects it.
 

@@ -91,7 +91,6 @@ fn print_scan_summary(results: &Scan) {
                     let risk_icon = match hndl.risk_level {
                         crate::hndl::HndlSeverity::Critical => "🔴",
                         crate::hndl::HndlSeverity::High => "🟠",
-                        crate::hndl::HndlSeverity::Moderate => "🟡",
                         crate::hndl::HndlSeverity::Medium => "🟡",
                         crate::hndl::HndlSeverity::Low => "🟢",
                         crate::hndl::HndlSeverity::Info => "✅",
@@ -260,7 +259,6 @@ fn print_scan_summary(results: &Scan) {
                     let risk_icon = match hndl.risk_level {
                         crate::hndl::HndlSeverity::Critical => "🔴",
                         crate::hndl::HndlSeverity::High => "🟠",
-                        crate::hndl::HndlSeverity::Moderate => "🟡",
                         crate::hndl::HndlSeverity::Medium => "🟡",
                         crate::hndl::HndlSeverity::Low => "🟢",
                         crate::hndl::HndlSeverity::Info => "✅",

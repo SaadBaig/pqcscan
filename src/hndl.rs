@@ -22,10 +22,8 @@ pub enum HndlSeverity {
     Info,
     /// Low risk — minor concern
     Low,
-    /// Medium risk — should be addressed
+    /// Medium risk — PQC active but residual classical concerns remain
     Medium,
-    /// Moderate risk — PQC active but legacy fallback paths remain
-    Moderate,
     /// High risk — significant quantum exposure
     High,
     /// Critical — traffic is actively harvestable and quantum-decryptable
@@ -38,7 +36,6 @@ impl std::fmt::Display for HndlSeverity {
             HndlSeverity::Info => write!(f, "INFO"),
             HndlSeverity::Low => write!(f, "LOW"),
             HndlSeverity::Medium => write!(f, "MEDIUM"),
-            HndlSeverity::Moderate => write!(f, "MODERATE"),
             HndlSeverity::High => write!(f, "HIGH"),
             HndlSeverity::Critical => write!(f, "CRITICAL"),
         }
@@ -248,10 +245,10 @@ fn check_tls12_fallback(input: &HndlInput, findings: &mut Vec<HndlFinding>) {
                     ),
                 });
             } else if cipher_upper.contains("DHE") || cipher_upper.contains("ECDHE") {
-                // If PQC is active, TLS 1.2 fallback is a secondary concern (MODERATE)
+                // If PQC is active, TLS 1.2 fallback is a secondary concern (MEDIUM)
                 // If no PQC, the fallback is the primary path and fully vulnerable (HIGH)
                 let severity = if input.pqc_supported {
-                    HndlSeverity::Moderate
+                    HndlSeverity::Medium
                 } else {
                     HndlSeverity::High
                 };
@@ -267,7 +264,7 @@ fn check_tls12_fallback(input: &HndlInput, findings: &mut Vec<HndlFinding>) {
                 });
             } else {
                 let severity = if input.pqc_supported {
-                    HndlSeverity::Moderate
+                    HndlSeverity::Medium
                 } else {
                     HndlSeverity::High
                 };
@@ -343,9 +340,9 @@ fn check_forward_secrecy(input: &HndlInput, findings: &mut Vec<HndlFinding>) {
 /// Check 4: Certificate key type and size risks.
 fn check_certificate_risks(input: &HndlInput, findings: &mut Vec<HndlFinding>) {
     // When PQC key exchange is active, cert forgery requires an active MitM
-    // (not passive harvest), so cap cert findings at Moderate.
+    // (not passive harvest), so cap cert findings at Medium.
     let cert_cap = if input.pqc_supported {
-        HndlSeverity::Moderate
+        HndlSeverity::Medium
     } else {
         HndlSeverity::High
     };
@@ -495,14 +492,9 @@ fn build_summary(risk_level: &HndlSeverity, findings: &[HndlFinding]) -> String 
              Captured traffic has limited protection against future quantum decryption.",
             high_count
         ),
-        HndlSeverity::Moderate => {
-            "MODERATE: PQC key exchange is active but legacy TLS 1.2 fallback paths remain. \
-             Primary sessions are quantum-resistant."
-                .to_string()
-        }
         HndlSeverity::Medium => {
-            "MEDIUM: Some quantum-vulnerable configurations detected. \
-             PQC key exchange may be active but other weaknesses exist."
+            "MEDIUM: PQC key exchange is active but residual classical concerns remain. \
+             Primary sessions are quantum-resistant."
                 .to_string()
         }
         HndlSeverity::Low => {
