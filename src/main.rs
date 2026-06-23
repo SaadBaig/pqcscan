@@ -78,31 +78,37 @@ fn print_scan_summary(results: &Scan) {
                 if let Some(hybrid) = hybrid_algos { algos.extend(hybrid.iter().cloned()); }
                 algos.sort();
 
-                if *pqc_supported {
-                    println!("  │  ✅ PQC Support:   Yes ({})", algos.join(", "));
-                } else {
-                    println!("  │  ❌ PQC Support:   No");
+                // Only show PQC Support headline in quick-scan mode (no handshake validation)
+                if handshake_pqc.is_none() && handshake_tls12.is_none() {
+                    if *pqc_supported {
+                        println!("  │  ✅ PQC Support:   Yes ({})", algos.join(", "));
+                    } else {
+                        println!("  │  ❌ PQC Support:   No");
+                    }
                 }
 
-                // Handshake Validation section (only shown when --validate-handshake is used)
-                if handshake_pqc.is_some() || handshake_tls12.is_some() {
+                // Combined Assessment section (only shown when --validate-handshake is used)
+                if let Some(hndl) = hndl_assessment {
+                    let risk_icon = match hndl.risk_level {
+                        crate::hndl::HndlSeverity::Critical => "🔴",
+                        crate::hndl::HndlSeverity::High => "🟠",
+                        crate::hndl::HndlSeverity::Moderate => "🟡",
+                        crate::hndl::HndlSeverity::Medium => "🟡",
+                        crate::hndl::HndlSeverity::Low => "🟢",
+                        crate::hndl::HndlSeverity::Info => "✅",
+                    };
                     println!("  │");
-                    println!("  │  ── Handshake Validation ──");
+                    println!("  │  {} Risk Assessment: {}", risk_icon, hndl.risk_level);
 
-                    // PQC-only handshake
+                    // PQC Key Exchange result
                     if let Some(pqc_hs) = handshake_pqc {
                         if pqc_hs.completed {
                             let group = pqc_hs.negotiated_group.as_deref().unwrap_or("-");
-                            println!("  │  ✅ PQC-only:     {} (TLS 1.3)", group);
+                            println!("  │  ✅ PQC Key Exchange: {} (TLS 1.3)", group);
                         } else {
-                            println!("  │  ❌ PQC-only:     Failed");
+                            println!("  │  ❌ PQC Key Exchange: Failed");
                         }
                     }
-
-                    // Classical handshake runs internally for cert/HNDL data but not shown
-
-                    // TLS 1.2 probe — not shown in output because client fingerprinting
-                    // causes false "rejected" results. The risk bullet handles TLS 1.2 exposure.
 
                     // SCSV
                     if let Some(scsv) = scsv_supported {
@@ -112,54 +118,39 @@ fn print_scan_summary(results: &Scan) {
                             println!("  │  ❌ TLS Fallback SCSV: Not supported");
                         }
                     }
-                } // end handshake validation section
 
-                // Risk Assessment section
-                if let Some(hndl) = hndl_assessment {
-                    let risk_icon = match hndl.risk_level {
-                        crate::hndl::HndlSeverity::Critical => "🔴",
-                        crate::hndl::HndlSeverity::High => "🟠",
-                        crate::hndl::HndlSeverity::Medium => "🟡",
-                        crate::hndl::HndlSeverity::Low => "🟢",
-                        crate::hndl::HndlSeverity::Info => "✅",
-                    };
-                    println!("  │");
-                    println!("  │  ── Risk Assessment ({} {}) ──", risk_icon, hndl.risk_level);
+                    // Findings
                     for finding in &hndl.findings {
-                        let bullet = match finding.category.as_str() {
-                            "PQC Key Exchange Active" => "PQC active on TLS 1.3 — sessions quantum-resistant".to_string(),
-                            "No PQC Key Exchange" => "No PQC — all traffic is quantum-decryptable".to_string(),
+                        match finding.category.as_str() {
+                            "PQC Key Exchange Active" => continue, // already shown above
+                            "No PQC Key Exchange" => continue, // already shown via ❌ PQC Key Exchange: Failed
                             "TLS 1.2 Fallback Available" => {
                                 let group = handshake_classical.as_ref()
                                     .and_then(|h| h.negotiated_group.as_deref())
                                     .unwrap_or("X25519");
-                                let icon = "⚠️ ";
-                                println!("  │  {} Vulnerable key exchange algorithms:", icon);
+                                println!("  │  ⚠️  Vulnerable key exchange algorithms:");
                                 println!("  │        - ECDHE (TLS 1.2)");
                                 println!("  │        - {} (TLS 1.3)", group);
-                                continue;
                             }
                             "TLS 1.2 Static RSA Key Exchange" => {
-                                let icon = "⚠️ ";
-                                println!("  │  {} Vulnerable key exchange algorithms:", icon);
+                                println!("  │  ⚠️  Vulnerable key exchange algorithms:");
                                 println!("  │        - static RSA (TLS 1.2) — no forward secrecy");
-                                continue;
                             }
-                            "TLS 1.2 Not Supported" => continue, // Can't reliably detect due to fingerprinting
+                            "TLS 1.2 Not Supported" => continue,
                             "Standard Classical Key Exchange" | "Strong Classical Key Exchange" | "Finite Field DH Key Exchange" => continue,
-                            "PQC Advertised But Not Negotiated" => "PQC advertised but classical chosen in practice".to_string(),
-                            "Downgrade Amplifies HNDL Risk" => "Downgrade possible — attacker can force classical".to_string(),
+                            "PQC Advertised But Not Negotiated" => {
+                                println!("  │  ⚠️  PQC advertised but classical chosen in practice");
+                            }
+                            "Downgrade Amplifies HNDL Risk" => {
+                                println!("  │  ⚠️  Downgrade possible — attacker can force classical");
+                            }
                             "RSA-2048 Certificate" => {
-                                let icon = "⚠️ ";
-                                println!("  │  {} Vulnerable certificate algorithms:", icon);
+                                println!("  │  ⚠️  Vulnerable certificate algorithms:");
                                 println!("  │        - RSA-2048");
-                                continue;
                             }
                             "RSA Certificate" => {
-                                let icon = "⚠️ ";
-                                println!("  │  {} Vulnerable certificate algorithms:", icon);
+                                println!("  │  ⚠️  Vulnerable certificate algorithms:");
                                 println!("  │        - RSA");
-                                continue;
                             }
                             "ECDSA Certificate" => {
                                 let hs = handshake_pqc.as_ref()
@@ -168,56 +159,74 @@ fn print_scan_summary(results: &Scan) {
                                     .or(handshake_tls12.as_ref().filter(|h| h.completed));
                                 let kt = hs.and_then(|h| h.peer_certificate_key_type.as_deref())
                                     .unwrap_or("ECDSA");
-                                let icon = "⚠️ ";
-                                println!("  │  {} Vulnerable certificate algorithms:", icon);
+                                println!("  │  ⚠️  Vulnerable certificate algorithms:");
                                 println!("  │        - {}", kt);
-                                continue;
                             }
                             "Long-Lived Certificate" | "Short-Lived Certificate" => continue,
-                            "Static RSA Key Exchange" => "Static RSA — no forward secrecy, all sessions decryptable".to_string(),
-                            _ => finding.category.clone(),
-                        };
-                        let icon = match finding.severity {
-                            crate::hndl::HndlSeverity::Info => "✅",
-                            _ => "⚠️ ",
-                        };
-                        println!("  │  {} {}", icon, bullet);
-                    }
-
-                    // Remediation section — specific to findings
-                    println!("  │");
-                    println!("  │  ── Remediation ──");
-                    for finding in &hndl.findings {
-                        let remediation = match finding.category.as_str() {
-                            "No PQC Key Exchange" => Some("Deploy PQC key exchange: configure X25519MLKEM768 on TLS 1.3"),
-                            "TLS 1.2 Fallback Available" => {
-                                println!("  │  🔧 Plan TLS 1.2 deprecation per NIST SP 800-52 Rev. 2 (target: 2030)");
-                                if let Some(scsv) = scsv_supported {
-                                    if !*scsv {
-                                        println!("  │  🔧 Enable TLS Fallback SCSV (RFC 7507) to detect downgrade attempts");
-                                    }
-                                }
-                                continue;
+                            "Static RSA Key Exchange" => {
+                                println!("  │  ⚠️  Static RSA — no forward secrecy, all sessions decryptable");
                             }
-                            "TLS 1.2 Static RSA Key Exchange" => Some("Remove static RSA cipher suites — use ECDHE for forward secrecy"),
-                            "Standard Classical Key Exchange" | "Strong Classical Key Exchange" | "Finite Field DH Key Exchange" => None,
-                            "RSA-2048 Certificate" => Some("Shorten cert validity to ≤90 days; adopt ML-DSA certificates when available"),
-                            "RSA Certificate" => Some("Shorten cert validity to ≤90 days; adopt ML-DSA certificates when available"),
-                            "ECDSA Certificate" => Some("Adopt ML-DSA certificates when available for quantum-safe authentication"),
-                            "Long-Lived Certificate" => None, // Already covered by cert-type remediation
-                            "PQC Advertised But Not Negotiated" => Some("Verify PQC group priority in server configuration"),
-                            "Downgrade Amplifies HNDL Risk" => Some("Investigate why server prefers classical over PQC when both offered"),
-                            "PQC Key Exchange Active" => None,
-                            "TLS 1.2 Not Supported" => None,
-                            "Short-Lived Certificate" => None,
-                            _ => None,
-                        };
-                        if let Some(r) = remediation {
-                            println!("  │  🔧 {}", r);
+                            _ => {
+                                println!("  │  ⚠️  {}", finding.category);
+                            }
                         }
                     }
 
-                    // SCSV remediation handled inline with TLS 1.2 finding
+                    // Remediation section
+                    println!("  │");
+                    println!("  │  🔧 Remediation:");
+
+                    let mut kex_remediations: Vec<&str> = Vec::new();
+                    let mut cert_remediations: Vec<&str> = Vec::new();
+                    let mut other_remediations: Vec<&str> = Vec::new();
+
+                    for finding in &hndl.findings {
+                        match finding.category.as_str() {
+                            "No PQC Key Exchange" => {
+                                kex_remediations.push("Deploy X25519MLKEM768 on TLS 1.3");
+                            }
+                            "TLS 1.2 Fallback Available" => {
+                                kex_remediations.push("Plan TLS 1.2 deprecation per NIST SP 800-52 Rev. 2");
+                                if let Some(scsv) = scsv_supported {
+                                    if !*scsv {
+                                        kex_remediations.push("Enable TLS Fallback SCSV (RFC 7507) to detect downgrade attempts");
+                                    }
+                                }
+                            }
+                            "TLS 1.2 Static RSA Key Exchange" => {
+                                kex_remediations.push("Remove static RSA cipher suites — use ECDHE for forward secrecy");
+                            }
+                            "RSA-2048 Certificate" | "RSA Certificate" => {
+                                cert_remediations.push("Adopt ML-DSA certificates when available");
+                            }
+                            "ECDSA Certificate" => {
+                                cert_remediations.push("Adopt ML-DSA certificates when available");
+                            }
+                            "PQC Advertised But Not Negotiated" => {
+                                other_remediations.push("Verify PQC group priority in server configuration");
+                            }
+                            "Downgrade Amplifies HNDL Risk" => {
+                                other_remediations.push("Investigate why server prefers classical over PQC when both offered");
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    if !kex_remediations.is_empty() {
+                        println!("  │     Key Exchange:");
+                        for r in &kex_remediations {
+                            println!("  │        - {}", r);
+                        }
+                    }
+                    if !cert_remediations.is_empty() {
+                        println!("  │     Certificates:");
+                        for r in &cert_remediations {
+                            println!("  │        - {}", r);
+                        }
+                    }
+                    for r in &other_remediations {
+                        println!("  │  🔧 {}", r);
+                    }
                 }
 
                 println!("  └────────────────────────────────────────");
@@ -252,6 +261,7 @@ fn print_scan_summary(results: &Scan) {
                     let risk_icon = match hndl.risk_level {
                         crate::hndl::HndlSeverity::Critical => "🔴",
                         crate::hndl::HndlSeverity::High => "🟠",
+                        crate::hndl::HndlSeverity::Moderate => "🟡",
                         crate::hndl::HndlSeverity::Medium => "🟡",
                         crate::hndl::HndlSeverity::Low => "🟢",
                         crate::hndl::HndlSeverity::Info => "✅",

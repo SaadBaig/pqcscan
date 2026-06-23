@@ -24,7 +24,9 @@ pub enum HndlSeverity {
     Low,
     /// Medium risk — should be addressed
     Medium,
-    /// High risk — significant HNDL exposure
+    /// Moderate risk — PQC active but legacy fallback paths remain
+    Moderate,
+    /// High risk — significant quantum exposure
     High,
     /// Critical — traffic is actively harvestable and quantum-decryptable
     Critical,
@@ -36,6 +38,7 @@ impl std::fmt::Display for HndlSeverity {
             HndlSeverity::Info => write!(f, "INFO"),
             HndlSeverity::Low => write!(f, "LOW"),
             HndlSeverity::Medium => write!(f, "MEDIUM"),
+            HndlSeverity::Moderate => write!(f, "MODERATE"),
             HndlSeverity::High => write!(f, "HIGH"),
             HndlSeverity::Critical => write!(f, "CRITICAL"),
         }
@@ -245,8 +248,15 @@ fn check_tls12_fallback(input: &HndlInput, findings: &mut Vec<HndlFinding>) {
                     ),
                 });
             } else if cipher_upper.contains("DHE") || cipher_upper.contains("ECDHE") {
+                // If PQC is active, TLS 1.2 fallback is a secondary concern (MODERATE)
+                // If no PQC, the fallback is the primary path and fully vulnerable (HIGH)
+                let severity = if input.pqc_supported {
+                    HndlSeverity::Moderate
+                } else {
+                    HndlSeverity::High
+                };
                 findings.push(HndlFinding {
-                    severity: HndlSeverity::High,
+                    severity,
                     category: "TLS 1.2 Fallback Available".to_string(),
                     detail: format!(
                         "Server accepts TLS 1.2 fallback ({}, {}). While forward secrecy \
@@ -256,8 +266,13 @@ fn check_tls12_fallback(input: &HndlInput, findings: &mut Vec<HndlFinding>) {
                     ),
                 });
             } else {
+                let severity = if input.pqc_supported {
+                    HndlSeverity::Moderate
+                } else {
+                    HndlSeverity::High
+                };
                 findings.push(HndlFinding {
-                    severity: HndlSeverity::High,
+                    severity,
                     category: "TLS 1.2 Fallback Available".to_string(),
                     detail: format!(
                         "Server accepts TLS 1.2 ({}, {}). Older protocol versions lack \
@@ -327,6 +342,14 @@ fn check_forward_secrecy(input: &HndlInput, findings: &mut Vec<HndlFinding>) {
 
 /// Check 4: Certificate key type and size risks.
 fn check_certificate_risks(input: &HndlInput, findings: &mut Vec<HndlFinding>) {
+    // When PQC key exchange is active, cert forgery requires an active MitM
+    // (not passive harvest), so cap cert findings at Moderate.
+    let cert_cap = if input.pqc_supported {
+        HndlSeverity::Moderate
+    } else {
+        HndlSeverity::High
+    };
+
     if let Some(key_type) = input.cert_key_type {
         let key_upper = key_type.to_uppercase();
 
@@ -334,7 +357,7 @@ fn check_certificate_risks(input: &HndlInput, findings: &mut Vec<HndlFinding>) {
             let bits = input.cert_key_bits.unwrap_or(0);
             if bits > 0 && bits <= 2048 {
                 findings.push(HndlFinding {
-                    severity: HndlSeverity::High,
+                    severity: cert_cap.clone(),
                     category: "RSA-2048 Certificate".to_string(),
                     detail: format!(
                         "Server uses RSA-{} certificate. RSA-2048 is estimated to be \
@@ -463,27 +486,32 @@ fn build_summary(risk_level: &HndlSeverity, findings: &[HndlFinding]) -> String 
 
     match risk_level {
         HndlSeverity::Critical => format!(
-            "CRITICAL HNDL RISK: Traffic captured today is decryptable post-quantum. \
+            "CRITICAL: Traffic captured today is decryptable post-quantum. \
              {} critical and {} high severity findings.",
             critical_count, high_count
         ),
         HndlSeverity::High => format!(
-            "HIGH HNDL RISK: Significant quantum vulnerability. {} high severity findings. \
+            "HIGH: Significant quantum vulnerability. {} high severity findings. \
              Captured traffic has limited protection against future quantum decryption.",
             high_count
         ),
+        HndlSeverity::Moderate => {
+            "MODERATE: PQC key exchange is active but legacy TLS 1.2 fallback paths remain. \
+             Primary sessions are quantum-resistant."
+                .to_string()
+        }
         HndlSeverity::Medium => {
-            "MEDIUM HNDL RISK: Some quantum-vulnerable configurations detected. \
+            "MEDIUM: Some quantum-vulnerable configurations detected. \
              PQC key exchange may be active but other weaknesses exist."
                 .to_string()
         }
         HndlSeverity::Low => {
-            "LOW HNDL RISK: Strong configuration with minor concerns. \
+            "LOW: Strong configuration with minor concerns. \
              PQC key exchange is active and classical fallback is robust."
                 .to_string()
         }
         HndlSeverity::Info => {
-            "MINIMAL HNDL RISK: Server has strong post-quantum protections in place."
+            "INFO: Server has strong post-quantum protections in place."
                 .to_string()
         }
     }

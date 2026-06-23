@@ -166,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn hndl_pqc_active_with_tls12_fallback_is_high() {
+    fn hndl_pqc_active_with_tls12_fallback_is_moderate() {
         let pqc_hs = make_completed_handshake("X25519MLKEM768", "TLS13_AES_256_GCM_SHA384", "TLSv1_3");
         let classical_hs = make_completed_handshake("X25519", "TLS13_AES_256_GCM_SHA384", "TLSv1_3");
         let tls12_hs = make_completed_handshake("", "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", "TLSv1_2");
@@ -189,7 +189,8 @@ mod tests {
         };
 
         let result = hndl::assess_hndl_risk(&input);
-        assert_eq!(result.risk_level, HndlSeverity::High);
+        assert_eq!(result.risk_level, HndlSeverity::Moderate);
+        assert!(!result.quantum_vulnerable);
         assert!(result.findings.iter().any(|f| f.category == "TLS 1.2 Fallback Available"));
     }
 
@@ -250,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn hndl_rsa_2048_cert_is_high() {
+    fn hndl_rsa_2048_cert_capped_at_moderate_with_pqc() {
         let pqc_hs = make_completed_handshake("X25519MLKEM768", "TLS13_AES_256_GCM_SHA384", "TLSv1_3");
         let classical_hs = make_completed_handshake("X25519", "TLS13_AES_256_GCM_SHA384", "TLSv1_3");
         let tls12_hs = make_failed_handshake();
@@ -273,6 +274,8 @@ mod tests {
         };
 
         let result = hndl::assess_hndl_risk(&input);
-        assert!(result.findings.iter().any(|f| f.severity == HndlSeverity::High && f.category.contains("RSA")));
+        // With PQC active, RSA-2048 cert is capped at Moderate (not High)
+        assert!(result.findings.iter().any(|f| f.severity == HndlSeverity::Moderate && f.category.contains("RSA")));
+        assert!(!result.quantum_vulnerable);
     }
 }
