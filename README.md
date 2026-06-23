@@ -9,7 +9,7 @@
 
 ## Table of Contents
 
-- [What pqcscan Does](#what-pqcscan-does)
+- [What PQCscan does](#what-pqcscan-does)
   - [Level 1: Advertisement Detection](#level-1-advertisement-detection-default)
   - [Level 2: Full Handshake Validation](#level-2-full-handshake-validation---validate-handshake)
   - [Level 3: Risk Assessment](#level-3-risk-assessment)
@@ -27,7 +27,7 @@
 
 ---
 
-# What pqcscan Does
+# What PQCscan does
 
 **pqcscan** scans SSH and TLS servers for post-quantum cryptography support. It operates at three levels of depth:
 
