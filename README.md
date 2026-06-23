@@ -19,14 +19,12 @@
   - [Quick Scan](#quick-scan-advertisement-detection)
   - [Full Handshake Validation with Risk Assessment](#full-handshake-validation-with-risk-assessment)
   - [CSV Export](#csv-export)
-  - [HTML Report](#html-report)
   - [Example Output](#example-output)
   - [All Options](#all-options)
 - [How It Works](#how-it-works)
 - [Screenshots](#screenshots)
 - [Contributing](#contributing)
 
----
 ---
 
 # What pqcscan Does
@@ -56,19 +54,7 @@ Compares handshake results to detect **downgrade attacks** (server chose classic
 | LOW | 🟢 | PQC active, no TLS 1.2 fallback, minor concerns only |
 | INFO | ✅ | Fully quantum-safe (theoretical — requires ML-DSA certificates) |
 
-Individual findings are assessed across key exchange, protocol fallback, and certificates:
-
-| Check | What it detects |
-|---|---|
-| No PQC key exchange | All traffic is quantum-decryptable (CRITICAL) |
-| Static RSA key exchange | TLS 1.2 with no forward secrecy (CRITICAL) |
-| TLS 1.2 fallback (no PQC) | Attacker can harvest quantum-vulnerable traffic (HIGH) |
-| TLS 1.2 fallback (PQC active) | Legacy path remains but primary sessions are quantum-safe (MEDIUM) |
-| PQC advertised but not negotiated | Server claims PQC but chose classical (HIGH) |
-| Downgrade amplification | Active attacker can force quantum-vulnerable exchange (HIGH) |
-| RSA/ECDSA certificates | Classical keys are quantum-forgeable — capped at MEDIUM when PQC key exchange is active (requires active MitM, not passive harvest) |
-
-X.509 certificates are parsed to extract key type (RSA, ECDSA-P-256, Ed25519), key size, and validity period. SSH servers get their own risk assessment based on advertised KEX algorithms and classical fallback risk.
+X.509 certificates are parsed to extract key type (RSA, ECDSA-P-256, Ed25519), key size, and validity period. Certificate findings are capped at MEDIUM when PQC key exchange is active — cert forgery requires an active MitM, not passive harvest. SSH servers get their own risk assessment based on advertised KEX algorithms and classical fallback risk.
 
 ---
 
@@ -76,20 +62,19 @@ X.509 certificates are parsed to extract key type (RSA, ECDSA-P-256, Ed25519), k
 
 The tool covers all NIST FIPS 203 (ML-KEM) key exchange variants deployed in TLS today:
 
-| Algorithm | Type | TLS Group ID |
-|---|---|---|
-| ML-KEM-512 | Standalone | 0x0200 (512) |
-| ML-KEM-768 | Standalone | 0x0201 (513) |
-| ML-KEM-1024 | Standalone | 0x0202 (514) |
-| X25519MLKEM768 | Hybrid (X25519 + ML-KEM-768) | 0x11EC (4588) |
-| SECP256R1MLKEM768 | Hybrid (P-256 + ML-KEM-768) | 0x11EB (4587) |
-| SECP384R1MLKEM1024 | Hybrid (P-384 + ML-KEM-1024) | 0x11ED (4589) |
+| Algorithm | Type |
+|---|---|
+| ML-KEM-512 | Standalone |
+| ML-KEM-768 | Standalone |
+| ML-KEM-1024 | Standalone |
+| X25519MLKEM768 | Hybrid (X25519 + ML-KEM-768) |
+| SECP256R1MLKEM768 | Hybrid (P-256 + ML-KEM-768) |
+| SECP384R1MLKEM1024 | Hybrid (P-384 + ML-KEM-1024) |
 
 For SSH, the tool identifies PQC KEX algorithms including `sntrup761x25519-sha512` (OpenSSH) and `mlkem768x25519-sha256` (newer implementations).
 
 ML-DSA (FIPS 204) and SLH-DSA (FIPS 205) signature algorithms are not yet covered — no production TLS servers use PQC certificates today.
 
----
 ---
 
 # Installation
@@ -123,9 +108,6 @@ pqcscan ssh-scan -t github.com:22
 
 # Scan from a target list with JSON output
 pqcscan tls-scan -T targets.txt -o results.json
-
-# Scan with HTML report
-pqcscan tls-scan -T targets.txt --validate-handshake --report report.html
 ```
 
 ## Full Handshake Validation with Risk Assessment
@@ -143,14 +125,6 @@ pqcscan tls-scan -T targets.txt --validate-handshake --csv results.csv
 ```
 
 One row per target with columns: host, port, protocol, pqc_supported, pqc_algorithms, negotiated_group, negotiated_cipher, tls12_fallback, risk_level, scsv_supported, cert_key_type, cert_key_bits, cert_validity_days.
-
-## HTML Report
-
-```bash
-pqcscan tls-scan -T targets.txt --validate-handshake --report report.html
-```
-
-The `--report` flag works on both `tls-scan` and `ssh-scan` subcommands, generating an HTML report directly from scan results.
 
 ## Example Output
 
