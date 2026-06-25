@@ -24,7 +24,7 @@ use crate::config::Config;
 use crate::scan::{scan_runner, Scan, ScanOptions, ScanResult, ScanType};
 use crate::utils::{parse_single_target, Target};
 
-fn print_scan_summary(results: &Scan) {
+fn print_scan_summary(results: &Scan, config: &Config) {
     println!();
     println!("═══════════════════════════════════════════════════════════════");
     println!("  PQCscan Summary");
@@ -60,7 +60,7 @@ fn print_scan_summary(results: &Scan) {
                 ..
             } => {
                 if let Some(err) = error {
-                    println!("  ┌─ {} (TLS)", targetspec);
+                    println!("  ┌─ {}", targetspec);
                     println!("  │  Error: {}", err);
                     println!("  └────────────────────────────────────────");
                     println!();
@@ -69,7 +69,7 @@ fn print_scan_summary(results: &Scan) {
 
                 // Only show PQC Support headline in quick-scan mode (no handshake validation)
                 if handshake_pqc.is_none() && handshake_tls12.is_none() {
-                    println!("  ┌─ {} (TLS)", targetspec);
+                    println!("  ┌─ {}", targetspec);
                     let mut algos = Vec::new();
                     if let Some(pqc) = pqc_algos { algos.extend(pqc.iter().cloned()); }
                     if let Some(hybrid) = hybrid_algos { algos.extend(hybrid.iter().cloned()); }
@@ -91,9 +91,10 @@ fn print_scan_summary(results: &Scan) {
                         crate::hndl::HndlSeverity::Low => "🟢",
                         crate::hndl::HndlSeverity::Info => "✅",
                     };
-                    println!("  ┌─ {} Risk: {} — {} (TLS)", risk_icon, hndl.risk_level, targetspec);
+                    println!("  ┌─ {} Risk: {} — {}", risk_icon, hndl.risk_level, targetspec);
 
                     // PQC Key Exchange result
+                    println!("  │");
                     if let Some(pqc_hs) = handshake_pqc {
                         if pqc_hs.completed {
                             let mut algos = Vec::new();
@@ -102,7 +103,12 @@ fn print_scan_summary(results: &Scan) {
                             algos.sort();
                             println!("  │  ✅ PQC Key Exchange:");
                             for algo in &algos {
-                                println!("  │        - {}", algo);
+                                let is_obsolete = config.tls_config.groups.get(algo).map(|g| g.obsolete).unwrap_or(false);
+                                if is_obsolete {
+                                    println!("  │        - {} (deprecated)", algo);
+                                } else {
+                                    println!("  │        - {}", algo);
+                                }
                             }
                         } else {
                             println!("  │  ❌ PQC Key Exchange: Failed");
@@ -112,40 +118,47 @@ fn print_scan_summary(results: &Scan) {
                     // Findings
                     for finding in &hndl.findings {
                         match finding.category.as_str() {
-                            "PQC Key Exchange Active" => continue, // already shown above
-                            "No PQC Key Exchange" => continue, // already shown via ❌ PQC Key Exchange: Failed
+                            "PQC Key Exchange Active" => continue,
+                            "No PQC Key Exchange" => continue,
                             "TLS 1.2 Fallback Available" => {
                                 let group = handshake_classical.as_ref()
                                     .and_then(|h| h.negotiated_group.as_deref())
                                     .unwrap_or("X25519");
+                                println!("  │");
                                 println!("  │  ⚠️  Vulnerable key exchange algorithms:");
                                 println!("  │        - ECDHE (TLS 1.2)");
                                 println!("  │        - {} (TLS 1.3)", group);
                             }
                             "TLS 1.2 Static RSA Key Exchange" => {
+                                println!("  │");
                                 println!("  │  ⚠️  Vulnerable key exchange algorithms:");
                                 println!("  │        - static RSA (TLS 1.2) — no forward secrecy");
                             }
                             "TLS 1.2 Not Supported" => continue,
                             "Standard Classical Key Exchange" | "Strong Classical Key Exchange" | "Finite Field DH Key Exchange" => continue,
                             "PQC Advertised But Not Negotiated" => {
+                                println!("  │");
                                 println!("  │  ⚠️  PQC advertised but classical chosen in practice");
                             }
                             "Deprecated PQC Algorithm" => {
                                 let group = handshake_pqc.as_ref()
                                     .and_then(|h| h.negotiated_group.as_deref())
                                     .unwrap_or("Kyber draft");
+                                println!("  │");
                                 println!("  │  ⚠️  Deprecated PQC algorithm:");
                                 println!("  │        - {} (migrate to ML-KEM)", group);
                             }
                             "Downgrade Amplifies Risk" => {
+                                println!("  │");
                                 println!("  │  ⚠️  Downgrade possible — attacker can force classical");
                             }
                             "RSA-2048 Certificate" => {
+                                println!("  │");
                                 println!("  │  ⚠️  Vulnerable certificate algorithms:");
                                 println!("  │        - RSA-2048");
                             }
                             "RSA Certificate" => {
+                                println!("  │");
                                 println!("  │  ⚠️  Vulnerable certificate algorithms:");
                                 println!("  │        - RSA");
                             }
@@ -156,6 +169,7 @@ fn print_scan_summary(results: &Scan) {
                                     .or(handshake_tls12.as_ref().filter(|h| h.completed));
                                 let kt = hs.and_then(|h| h.peer_certificate_key_type.as_deref())
                                     .unwrap_or("ECDSA");
+                                println!("  │");
                                 println!("  │  ⚠️  Vulnerable certificate algorithms:");
                                 println!("  │        - {}", kt);
                             }
@@ -166,13 +180,16 @@ fn print_scan_summary(results: &Scan) {
                                     .or(handshake_tls12.as_ref().filter(|h| h.completed));
                                 let kt = hs.and_then(|h| h.peer_certificate_key_type.as_deref())
                                     .unwrap_or("ML-DSA");
+                                println!("  │");
                                 println!("  │  ✅ PQC Certificate: {}", kt);
                             }
                             "Long-Lived Certificate" | "Short-Lived Certificate" => continue,
                             "Static RSA Key Exchange" => {
+                                println!("  │");
                                 println!("  │  ⚠️  Static RSA — no forward secrecy, all sessions decryptable");
                             }
                             _ => {
+                                println!("  │");
                                 println!("  │  ⚠️  {}", finding.category);
                             }
                         }
@@ -182,20 +199,33 @@ fn print_scan_summary(results: &Scan) {
                     println!("  │");
                     println!("  │  🔧 Remediation:");
 
-                    let mut kex_remediations: Vec<&str> = Vec::new();
+                    let mut kex_remediations: Vec<String> = Vec::new();
                     let mut cert_remediations: Vec<&str> = Vec::new();
                     let mut other_remediations: Vec<&str> = Vec::new();
+
+                    // Check if any detected PQC algorithms are deprecated (from raw probe)
+                    let mut deprecated_algos: Vec<String> = Vec::new();
+                    for algos_list in [pqc_algos.as_ref(), hybrid_algos.as_ref()].iter().flatten() {
+                        for algo in algos_list.iter() {
+                            if config.tls_config.groups.get(algo).map(|g| g.obsolete).unwrap_or(false) {
+                                deprecated_algos.push(algo.clone());
+                            }
+                        }
+                    }
+                    for algo in &deprecated_algos {
+                        kex_remediations.push(format!("Disable {} — use X25519MLKEM768", algo));
+                    }
 
                     for finding in &hndl.findings {
                         match finding.category.as_str() {
                             "No PQC Key Exchange" => {
-                                kex_remediations.push("Deploy X25519MLKEM768 on TLS 1.3");
+                                kex_remediations.push("Deploy X25519MLKEM768 on TLS 1.3".to_string());
                             }
                             "TLS 1.2 Fallback Available" => {
-                                kex_remediations.push("Plan TLS 1.2 deprecation per NIST SP 800-52 Rev. 2");
+                                kex_remediations.push("Plan TLS 1.2 deprecation per NIST SP 800-52 Rev. 2".to_string());
                             }
                             "TLS 1.2 Static RSA Key Exchange" => {
-                                kex_remediations.push("Remove static RSA cipher suites — use ECDHE for forward secrecy");
+                                kex_remediations.push("Remove static RSA cipher suites — use ECDHE for forward secrecy".to_string());
                             }
                             "RSA-2048 Certificate" | "RSA Certificate" => {
                                 cert_remediations.push("Adopt ML-DSA certificates when available");
@@ -210,7 +240,7 @@ fn print_scan_summary(results: &Scan) {
                                 other_remediations.push("Verify PQC group priority in server configuration");
                             }
                             "Deprecated PQC Algorithm" => {
-                                kex_remediations.push("Migrate from Kyber draft to ML-KEM (X25519MLKEM768)");
+                                // Handled above from raw probe results
                             }
                             "Downgrade Amplifies Risk" => {
                                 other_remediations.push("Investigate why server prefers classical over PQC when both offered");
@@ -226,12 +256,14 @@ fn print_scan_summary(results: &Scan) {
                         }
                     }
                     if !cert_remediations.is_empty() {
+                        println!("  │");
                         println!("  │     Certificates:");
                         for r in &cert_remediations {
                             println!("  │        - {}", r);
                         }
                     }
                     for r in &other_remediations {
+                        println!("  │");
                         println!("  │  🔧 {}", r);
                     }
                 }
@@ -789,9 +821,10 @@ fn main() -> Result<()> {
 
     log::info!("Initializing async runtime");
     let rt = Runtime::new()?;
+    let config = Arc::new(config);
 
     log::info!("Starting scan execution");
-    let results = rt.block_on(scan_runner(Arc::new(config), scan));
+    let results = rt.block_on(scan_runner(config.clone(), scan));
     rt.shutdown_background();
 
     log::info!("Scan completed. Total results: {}", results.results.len());
@@ -800,7 +833,7 @@ fn main() -> Result<()> {
         (results.end_time - results.start_time).num_milliseconds() as f64 / 1000.0
     );
 
-    print_scan_summary(&results);
+    print_scan_summary(&results, &config);
 
     /* write results to JSON output if requested */
     if let Some(output_file) = output_json_file {

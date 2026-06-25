@@ -77,18 +77,24 @@ $ pqcscan tls-scan -t cloudflare.com --validate-handshake
 
   Scanned cloudflare.com:443 in 1.86s
 
-  ┌─ 🟡 Risk: MEDIUM — cloudflare.com:443 (TLS)
+  ┌─ 🟡 Risk: MEDIUM — cloudflare.com:443
+  │
   │  ✅ PQC Key Exchange:
+  │        - X25519Kyber768Draft00 (deprecated)
   │        - X25519MLKEM768
+  │
   │  ⚠️ Vulnerable key exchange algorithms:
   │        - ECDHE (TLS 1.2)
   │        - X25519 (TLS 1.3)
+  │
   │  ⚠️ Vulnerable certificate algorithms:
   │        - ECDSA-P-256
   │
   │  🔧 Remediation:
   │     Key Exchange:
+  │        - Disable X25519Kyber768Draft00 — use X25519MLKEM768
   │        - Plan TLS 1.2 deprecation per NIST SP 800-52 Rev. 2
+  │
   │     Certificates:
   │        - Adopt ML-DSA certificates when available
   └────────────────────────────────────────

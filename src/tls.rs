@@ -32,13 +32,12 @@ pub struct TlsGroup {
     group_id: u16,
     pqc: bool,
     hybrid: bool,
-    #[allow(dead_code)] // currently not used
-    obsolete: bool,
-    #[allow(dead_code)] // currently not used
+    pub obsolete: bool,
+    #[allow(dead_code)]
     insecure: bool,
-    #[allow(dead_code)] // currently not used
+    #[allow(dead_code)]
     desc: String,
-    #[allow(dead_code)] // currently not used
+    #[allow(dead_code)]
     href: String,
 }
 
