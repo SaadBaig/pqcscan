@@ -201,6 +201,21 @@ fn check_pqc_key_exchange(input: &HndlInput, findings: &mut Vec<HndlFinding>) {
                         group
                     ),
                 });
+
+                // Check if the negotiated group is a deprecated Kyber draft
+                let group_upper = group.to_uppercase();
+                if group_upper.contains("KYBER") {
+                    findings.push(HndlFinding {
+                        severity: HndlSeverity::Medium,
+                        category: "Deprecated PQC Algorithm".to_string(),
+                        detail: format!(
+                            "Server negotiated deprecated Kyber draft algorithm ({}). \
+                             Kyber drafts are pre-FIPS and incompatible with standardized ML-KEM. \
+                             Migrate to X25519MLKEM768 or SECP256R1MLKEM768.",
+                            group
+                        ),
+                    });
+                }
             } else {
                 findings.push(HndlFinding {
                     severity: HndlSeverity::High,

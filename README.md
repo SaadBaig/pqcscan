@@ -171,12 +171,22 @@ The tool covers all NIST FIPS 203 (ML-KEM) key exchange variants deployed in TLS
 | SECP256R1MLKEM768 | Hybrid (P-256 + ML-KEM-768) |
 | SECP384R1MLKEM1024 | Hybrid (P-384 + ML-KEM-1024) |
 
+The tool also detects deprecated pre-FIPS Kyber draft algorithms and flags them with a migration warning:
+
+| Algorithm | Type | Status |
+|---|---|---|
+| X25519Kyber768Draft00 | Hybrid (X25519 + Kyber-768) | ⚠️ Deprecated — migrate to X25519MLKEM768 |
+| SecP256r1Kyber768Draft00 | Hybrid (P-256 + Kyber-768) | ⚠️ Deprecated — migrate to SECP256R1MLKEM768 |
+
 For SSH, the tool identifies PQC KEX algorithms:
 
 | Algorithm | Type |
 |---|---|
 | sntrup761x25519-sha512 | Hybrid (NTRU Prime + X25519) |
 | mlkem768x25519-sha256 | Hybrid (ML-KEM-768 + X25519) |
+| mlkem768nistp256-sha256 | Hybrid (ML-KEM-768 + P-256) |
+| mlkem1024nistp384-sha384 | Hybrid (ML-KEM-1024 + P-384) |
+| sntrup761-sha512 | Standalone (NTRU Prime) |
 
 For certificates, the tool recognizes PQC signature algorithms:
 
@@ -193,6 +203,10 @@ For certificates, the tool recognizes PQC signature algorithms:
 | SLH-DSA-SHAKE-256s/f | FIPS 205 | NIST Level 5 |
 
 Servers presenting PQC certificates receive no certificate vulnerability finding, enabling them to reach LOW or INFO risk ratings.
+
+### Scope Note: TLS Signature Schemes
+
+The tool advertises ML-DSA-44, ML-DSA-65, and ML-DSA-87 in its `signature_algorithms` TLS extension. This means servers with dual-cert configurations (classical + PQC) will present their ML-DSA certificate to pqcscan, and the tool will correctly identify it as quantum-safe. Servers without PQC certificates simply ignore the ML-DSA scheme IDs and serve their classical cert as usual.
 
 ---
 

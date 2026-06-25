@@ -1,4 +1,22 @@
 {
+  "X25519Kyber768Draft00": {
+    "group_id": 25497,
+    "pqc": true,
+    "hybrid": true,
+    "obsolete": true,
+    "insecure": false,
+    "desc": "DEPRECATED: Hybrid X25519 with Kyber-768 (pre-FIPS draft). Use X25519MLKEM768 instead.",
+    "href": "https://datatracker.ietf.org/doc/draft-tls-westerbaan-xyber768d00/"
+  },
+  "SecP256r1Kyber768Draft00": {
+    "group_id": 25498,
+    "pqc": true,
+    "hybrid": true,
+    "obsolete": true,
+    "insecure": false,
+    "desc": "DEPRECATED: Hybrid P-256 with Kyber-768 (pre-FIPS draft). Use SECP256R1MLKEM768 instead.",
+    "href": "https://datatracker.ietf.org/doc/draft-tls-westerbaan-xyber768d00/"
+  },
   "X25519MLKEM768": {
     "group_id": 4588,
     "pqc": true,

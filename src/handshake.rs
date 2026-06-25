@@ -101,6 +101,10 @@ impl ServerCertVerifier for NoVerifier {
             SignatureScheme::RSA_PSS_SHA512,
             SignatureScheme::ED25519,
             SignatureScheme::ED448,
+            // Post-quantum signature schemes (ML-DSA / FIPS 204)
+            SignatureScheme::ML_DSA_44,
+            SignatureScheme::ML_DSA_65,
+            SignatureScheme::ML_DSA_87,
         ]
     }
 }

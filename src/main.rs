@@ -3,13 +3,10 @@ use chrono::prelude::*;
 use clap::{crate_version, Arg, ArgAction, ArgMatches, Command};
 use env_logger::Env;
 use rust_embed::RustEmbed;
-use serde::Serialize;
-use std::collections::{BTreeSet, HashMap};
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tera::{Context, Tera};
 use tokio::runtime::Runtime;
 
 mod config;
@@ -139,6 +136,13 @@ fn print_scan_summary(results: &Scan) {
                             "PQC Advertised But Not Negotiated" => {
                                 println!("  │  ⚠️  PQC advertised but classical chosen in practice");
                             }
+                            "Deprecated PQC Algorithm" => {
+                                let group = handshake_pqc.as_ref()
+                                    .and_then(|h| h.negotiated_group.as_deref())
+                                    .unwrap_or("Kyber draft");
+                                println!("  │  ⚠️  Deprecated PQC algorithm:");
+                                println!("  │        - {} (migrate to ML-KEM)", group);
+                            }
                             "Downgrade Amplifies Risk" => {
                                 println!("  │  ⚠️  Downgrade possible — attacker can force classical");
                             }
@@ -214,6 +218,9 @@ fn print_scan_summary(results: &Scan) {
                             }
                             "PQC Advertised But Not Negotiated" => {
                                 other_remediations.push("Verify PQC group priority in server configuration");
+                            }
+                            "Deprecated PQC Algorithm" => {
+                                kex_remediations.push("Migrate from Kyber draft to ML-KEM (X25519MLKEM768)");
                             }
                             "Downgrade Amplifies Risk" => {
                                 other_remediations.push("Investigate why server prefers classical over PQC when both offered");
@@ -432,28 +439,26 @@ fn get_targets(matches: &ArgMatches, default_port: Option<u16>) -> Result<Vec<Ta
     }
 }
 
-#[derive(Serialize)]
-struct ReportResults {
-    tls_results: HashMap<String, Vec<ScanResult>>,
-    tls_sorted_hosts: BTreeSet<String>,
-    tls_success_count: usize,
-    tls_fail_count: usize,
-    tls_pqc_supported_count: usize,
-    tls_total_count: usize,
-    ssh_results: HashMap<String, Vec<ScanResult>>,
-    ssh_sorted_hosts: BTreeSet<String>,
-    ssh_success_count: usize,
-    ssh_fail_count: usize,
-    ssh_pqc_supported_count: usize,
-    ssh_total_count: usize,
-    scan_windows: Vec<ScanWindow>,
-}
+fn generate_report_from_scan(output_file: &str, scan: &Scan) -> Result<()> {
+    use std::io::Write;
+    log::debug!("Generating HTML report");
 
-#[derive(Serialize)]
-struct ScanWindow {
-    start_time: DateTime<Utc>,
-    end_time: DateTime<Utc>,
-    scan_type: ScanType,
+    let html_file = EmbeddedResources::get("template.html").unwrap();
+    let template = std::str::from_utf8(html_file.data.as_ref())?;
+
+    let dt = Utc::now().format("%Y-%m-%d %H:%M:%S %Z").to_string();
+    let scan_data = serde_json::json!({ "results": &scan.results });
+
+    let output = template
+        .replace("{{ title }}", &dt)
+        .replace("{{ scan_data | safe }}", &scan_data.to_string());
+
+    let f = File::create(output_file)?;
+    let mut w = BufWriter::new(f);
+    w.write_all(output.as_bytes())?;
+
+    log::info!("HTML report written to {}", output_file);
+    Ok(())
 }
 
 fn write_csv(path: &str, scan: &Scan) -> Result<()> {
@@ -649,102 +654,6 @@ fn escape_xml(s: &str) -> String {
      .replace('>', "&gt;")
      .replace('"', "&quot;")
      .replace('\'', "&apos;")
-}
-
-fn render_report(output_file: &str, results: ReportResults) -> Result<()> {
-    let templates = [
-        "template.html",
-    ];
-    let mut tera = Tera::default();
-
-    log::debug!("Loading HTML template");
-    for template in templates {
-        let html_file = EmbeddedResources::get(template).unwrap();
-        let html_data = std::str::from_utf8(html_file.data.as_ref())?;
-        tera.add_raw_template(template, html_data)?;
-    }
-
-    // Build the scan data as a JSON blob for client-side rendering
-    let scan_data = serde_json::json!({
-        "results": results.tls_results.values()
-            .flatten()
-            .chain(results.ssh_results.values().flatten())
-            .collect::<Vec<_>>(),
-        "tls_total": results.tls_total_count,
-        "ssh_total": results.ssh_total_count,
-    });
-
-    let mut ctx = Context::new();
-    let dt = Utc::now().format("%Y-%m-%d %H:%M:%S %Z").to_string();
-    ctx.insert("title", &dt);
-    ctx.insert("scan_data", &scan_data.to_string());
-
-    log::debug!("Rendering HTML report to {}", output_file);
-    let f = File::create(output_file)?;
-    tera.render_to("template.html", &ctx, f)?;
-    log::info!("HTML report written to {}", output_file);
-
-    Ok(())
-}
-
-fn generate_report_from_scan(output_file: &str, scan: &Scan) -> Result<()> {
-    log::debug!("Generating HTML report from scan results");
-
-    let mut tls_map: HashMap<String, Vec<ScanResult>> = HashMap::new();
-    let mut ssh_map: HashMap<String, Vec<ScanResult>> = HashMap::new();
-    let mut tls_hosts: BTreeSet<String> = BTreeSet::new();
-    let mut ssh_hosts: BTreeSet<String> = BTreeSet::new();
-    let mut ssh_pqc_supported_count: usize = 0;
-    let mut tls_pqc_supported_count: usize = 0;
-    let mut ssh_success_count: usize = 0;
-    let mut tls_success_count: usize = 0;
-    let mut ssh_total_count: usize = 0;
-    let mut tls_total_count: usize = 0;
-
-    for result in &scan.results {
-        match result {
-            ScanResult::Ssh { ref targetspec, ref error, pqc_supported, .. } => {
-                ssh_hosts.insert(targetspec.host.clone());
-                let host = targetspec.host.clone();
-                ssh_map.entry(host).or_default().push(result.clone());
-                if error.is_none() { ssh_success_count += 1; }
-                if *pqc_supported { ssh_pqc_supported_count += 1; }
-                ssh_total_count += 1;
-            }
-            ScanResult::Tls { ref targetspec, ref error, pqc_supported, .. } => {
-                tls_hosts.insert(targetspec.host.clone());
-                let host = targetspec.host.clone();
-                tls_map.entry(host).or_default().push(result.clone());
-                if error.is_none() { tls_success_count += 1; }
-                if *pqc_supported { tls_pqc_supported_count += 1; }
-                tls_total_count += 1;
-            }
-            _ => continue,
-        }
-    }
-
-    let tls_fail_count = tls_total_count - tls_success_count;
-    let ssh_fail_count = ssh_total_count - ssh_success_count;
-
-    render_report(output_file, ReportResults {
-        tls_results: tls_map,
-        tls_sorted_hosts: tls_hosts,
-        tls_success_count,
-        tls_pqc_supported_count,
-        tls_fail_count,
-        tls_total_count,
-        ssh_results: ssh_map,
-        ssh_sorted_hosts: ssh_hosts,
-        ssh_success_count,
-        ssh_fail_count,
-        ssh_pqc_supported_count,
-        ssh_total_count,
-        scan_windows: vec![ScanWindow {
-            start_time: scan.start_time,
-            end_time: scan.end_time,
-            scan_type: scan.scan_type,
-        }],
-    })
 }
 
 fn main() -> Result<()> {
