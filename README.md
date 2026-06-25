@@ -80,10 +80,10 @@ $ pqcscan tls-scan -t cloudflare.com --validate-handshake
   ┌─ 🟡 Risk: MEDIUM — cloudflare.com:443 (TLS)
   │  ✅ PQC Key Exchange:
   │        - X25519MLKEM768
-  │  ⚠️  Vulnerable key exchange algorithms:
+  │  ⚠️ Vulnerable key exchange algorithms:
   │        - ECDHE (TLS 1.2)
   │        - X25519 (TLS 1.3)
-  │  ⚠️  Vulnerable certificate algorithms:
+  │  ⚠️ Vulnerable certificate algorithms:
   │        - ECDSA-P-256
   │
   │  🔧 Remediation:
