@@ -152,7 +152,7 @@ Compares handshake results to detect **downgrade attacks** (server chose classic
 | HIGH | 🟠 | PQC advertised but not negotiated, or active downgrade risk |
 | MEDIUM | 🟡 | PQC active, residual classical concerns (TLS 1.2 fallback, classical certificates) |
 | LOW | 🟢 | PQC active, no TLS 1.2 fallback, minor concerns only |
-| INFO | ✅ | Fully quantum-safe (theoretical — requires ML-DSA certificates) |
+| INFO | ✅ | Fully quantum-safe (PQC key exchange + ML-DSA certificate) |
 
 X.509 certificates are parsed to extract key type (RSA, ECDSA-P-256, Ed25519), key size, and validity period. Certificate findings are capped at MEDIUM when PQC key exchange is active — cert forgery requires an active MitM, not passive harvest. SSH servers get their own risk assessment based on advertised KEX algorithms and classical fallback risk.
 
