@@ -228,10 +228,10 @@ fn print_scan_summary(results: &Scan, config: &Config) {
                                 kex_remediations.push("Remove static RSA cipher suites — use ECDHE for forward secrecy".to_string());
                             }
                             "RSA-2048 Certificate" | "RSA Certificate" => {
-                                cert_remediations.push("Adopt ML-DSA certificates when available");
+                                cert_remediations.push("Migrate to ML-DSA certificates for quantum-safe authentication");
                             }
                             "ECDSA Certificate" => {
-                                cert_remediations.push("Adopt ML-DSA certificates when available");
+                                cert_remediations.push("Migrate to ML-DSA certificates for quantum-safe authentication");
                             }
                             "PQC Certificate" => {
                                 // No remediation needed — cert is already quantum-safe

@@ -96,7 +96,7 @@ $ pqcscan tls-scan -t cloudflare.com --validate-handshake
   │        - Plan TLS 1.2 deprecation per NIST SP 800-52 Rev. 2
   │
   │     Certificates:
-  │        - Adopt ML-DSA certificates when available
+  │        - Migrate to ML-DSA certificates for quantum-safe authentication
   └────────────────────────────────────────
 
 ═══════════════════════════════════════════════════════════════
