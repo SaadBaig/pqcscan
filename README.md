@@ -178,7 +178,21 @@ For SSH, the tool identifies PQC KEX algorithms:
 | sntrup761x25519-sha512 | Hybrid (NTRU Prime + X25519) |
 | mlkem768x25519-sha256 | Hybrid (ML-KEM-768 + X25519) |
 
-For certificates, the tool recognizes ML-DSA (FIPS 204) and SLH-DSA (FIPS 205) signature algorithms. Servers presenting PQC certificates receive no certificate vulnerability finding, enabling them to reach LOW or INFO risk ratings.
+For certificates, the tool recognizes PQC signature algorithms:
+
+| Algorithm | Standard | Security Level |
+|---|---|---|
+| ML-DSA-44 | FIPS 204 | NIST Level 2 |
+| ML-DSA-65 | FIPS 204 | NIST Level 3 |
+| ML-DSA-87 | FIPS 204 | NIST Level 5 |
+| SLH-DSA-SHA2-128s/f | FIPS 205 | NIST Level 1 |
+| SLH-DSA-SHA2-192s/f | FIPS 205 | NIST Level 3 |
+| SLH-DSA-SHA2-256s/f | FIPS 205 | NIST Level 5 |
+| SLH-DSA-SHAKE-128s/f | FIPS 205 | NIST Level 1 |
+| SLH-DSA-SHAKE-192s/f | FIPS 205 | NIST Level 3 |
+| SLH-DSA-SHAKE-256s/f | FIPS 205 | NIST Level 5 |
+
+Servers presenting PQC certificates receive no certificate vulnerability finding, enabling them to reach LOW or INFO risk ratings.
 
 ---
 
