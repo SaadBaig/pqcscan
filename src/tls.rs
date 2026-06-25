@@ -568,78 +568,6 @@ fn tls_connect_with_group(
     }
 }
 
-/// Test if the server supports TLS_FALLBACK_SCSV (RFC 7507).
-/// Sends a TLS 1.2 ClientHello with the SCSV cipher suite value (0x5600).
-/// If the server supports TLS 1.3 and correctly implements SCSV, it should
-/// respond with an `inappropriate_fallback` alert (86).
-/// Returns: Some(true) = SCSV supported, Some(false) = SCSV not supported, None = error
-fn test_fallback_scsv(
-    target: &Target,
-    config: &Arc<Config>,
-) -> Option<bool> {
-    let ret = std::net::TcpStream::connect_timeout(
-        &match format!("{}:{}", target.host, target.port).parse() {
-            Ok(a) => a,
-            Err(_) => {
-                use std::net::ToSocketAddrs;
-                match format!("{}:{}", target.host, target.port).to_socket_addrs() {
-                    Ok(mut addrs) => addrs.next()?,
-                    Err(_) => return None,
-                }
-            }
-        },
-        std::time::Duration::from_secs(config.connection_timeout),
-    );
-    let mut stream = match ret {
-        Ok(s) => s,
-        Err(_) => return None,
-    };
-    stream.set_read_timeout(Some(Duration::from_secs(config.read_timeout))).ok();
-
-    // Build a TLS 1.2 ClientHello with TLS_FALLBACK_SCSV
-    let ciphers: Vec<u16> = config
-        .tls_config
-        .cipher_suites
-        .values()
-        .map(|cs| cs.cipher_suite_id)
-        .collect();
-
-    let mut chb = ClientHelloBuilder::new();
-    for cipher in ciphers {
-        chb.add_cipher_suite(cipher);
-    }
-    // Add TLS_FALLBACK_SCSV (0x5600)
-    chb.add_cipher_suite(0x5600);
-    chb.add_compression_method(0);
-    chb.add_extension(Extension::server_name(&target.host).ok()?);
-    // Offer TLS 1.2 only (no supported_versions extension = legacy behavior)
-    chb.add_extension(Extension::supported_groups(vec![29, 23]).ok()?); // X25519, P-256
-    chb.add_extension(Extension::signature_algorithms(vec![0x0401, 0x0501, 0x0601]).ok()?);
-    chb.add_extension(Extension::key_share(&[]).ok()?);
-
-    stream.write_all(&chb.to_buf().ok()?).ok()?;
-    let mut buf = [0u8; 16384];
-    let read = stream.read(&mut buf).ok()?;
-    if read < 7 {
-        return None;
-    }
-
-    let content_type = buf[0];
-    if content_type == 0x15 {
-        // Alert record
-        let level = buf[5];
-        let desc = buf[6];
-        if level == 0x02 && desc == 86 {
-            // inappropriate_fallback — SCSV is working
-            return Some(true);
-        }
-        // Some other alert — server rejected but not with SCSV
-        return Some(false);
-    }
-    // Server accepted the TLS 1.2 handshake without flagging SCSV
-    Some(false)
-}
-
 pub async fn tls_scan_target(
     config: &Arc<Config>,
     target: &Target,
@@ -707,7 +635,6 @@ pub async fn tls_scan_target(
                     handshake_tls12: None,
                     downgrade_check: None,
                     hndl_assessment: None,
-                    scsv_supported: None,
                 };
             }
         };
@@ -930,22 +857,6 @@ pub async fn tls_scan_target(
         dc
     });
 
-    // Test SCSV fallback signaling if handshake validation is enabled
-    let scsv_supported = if validate_handshake_flag {
-        let result = tokio::task::block_in_place(|| test_fallback_scsv(target, config));
-        if let Some(supported) = result {
-            log::info!(
-                "SCSV fallback test for {}: {}",
-                target,
-                if supported { "supported (inappropriate_fallback alert received)" }
-                else { "NOT supported (server did not send inappropriate_fallback)" }
-            );
-        }
-        result
-    } else {
-        None
-    };
-
     ScanResult::Tls {
         targetspec: target.clone(),
         addr,
@@ -963,6 +874,5 @@ pub async fn tls_scan_target(
         handshake_tls12: handshake_tls12.map(Box::new),
         downgrade_check,
         hndl_assessment,
-        scsv_supported,
     }
 }

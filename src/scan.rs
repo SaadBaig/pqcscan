@@ -37,7 +37,6 @@ pub enum ScanResult {
         handshake_tls12: Option<Box<HandshakeValidation>>,
         downgrade_check: Option<DowngradeCheck>,
         hndl_assessment: Option<HndlAssessment>,
-        scsv_supported: Option<bool>,
     },
     Done,
 }

@@ -57,12 +57,10 @@ fn print_scan_summary(results: &Scan) {
                 handshake_classical,
                 handshake_tls12,
                 hndl_assessment,
-                scsv_supported,
                 ..
             } => {
-                println!("  ┌─ {} (TLS)", targetspec);
-
                 if let Some(err) = error {
+                    println!("  ┌─ {} (TLS)", targetspec);
                     println!("  │  Error: {}", err);
                     println!("  └────────────────────────────────────────");
                     println!();
@@ -71,6 +69,7 @@ fn print_scan_summary(results: &Scan) {
 
                 // Only show PQC Support headline in quick-scan mode (no handshake validation)
                 if handshake_pqc.is_none() && handshake_tls12.is_none() {
+                    println!("  ┌─ {} (TLS)", targetspec);
                     let mut algos = Vec::new();
                     if let Some(pqc) = pqc_algos { algos.extend(pqc.iter().cloned()); }
                     if let Some(hybrid) = hybrid_algos { algos.extend(hybrid.iter().cloned()); }
@@ -92,25 +91,21 @@ fn print_scan_summary(results: &Scan) {
                         crate::hndl::HndlSeverity::Low => "🟢",
                         crate::hndl::HndlSeverity::Info => "✅",
                     };
-                    println!("  │");
-                    println!("  │  {} Risk Assessment: {}", risk_icon, hndl.risk_level);
+                    println!("  ┌─ {} Risk: {} — {} (TLS)", risk_icon, hndl.risk_level, targetspec);
 
                     // PQC Key Exchange result
                     if let Some(pqc_hs) = handshake_pqc {
                         if pqc_hs.completed {
-                            let group = pqc_hs.negotiated_group.as_deref().unwrap_or("-");
-                            println!("  │  ✅ PQC Key Exchange: {} (TLS 1.3)", group);
+                            let mut algos = Vec::new();
+                            if let Some(pqc) = pqc_algos { algos.extend(pqc.iter().cloned()); }
+                            if let Some(hybrid) = hybrid_algos { algos.extend(hybrid.iter().cloned()); }
+                            algos.sort();
+                            println!("  │  ✅ PQC Key Exchange:");
+                            for algo in &algos {
+                                println!("  │        - {}", algo);
+                            }
                         } else {
                             println!("  │  ❌ PQC Key Exchange: Failed");
-                        }
-                    }
-
-                    // SCSV
-                    if let Some(scsv) = scsv_supported {
-                        if *scsv {
-                            println!("  │  ✅ TLS Fallback SCSV: Supported");
-                        } else {
-                            println!("  │  ❌ TLS Fallback SCSV: Not supported");
                         }
                     }
 
@@ -198,11 +193,6 @@ fn print_scan_summary(results: &Scan) {
                             }
                             "TLS 1.2 Fallback Available" => {
                                 kex_remediations.push("Plan TLS 1.2 deprecation per NIST SP 800-52 Rev. 2");
-                                if let Some(scsv) = scsv_supported {
-                                    if !*scsv {
-                                        kex_remediations.push("Enable TLS Fallback SCSV (RFC 7507) to detect downgrade attempts");
-                                    }
-                                }
                             }
                             "TLS 1.2 Static RSA Key Exchange" => {
                                 kex_remediations.push("Remove static RSA cipher suites — use ECDHE for forward secrecy");
@@ -466,14 +456,14 @@ fn write_csv(path: &str, scan: &Scan) -> Result<()> {
     let f = File::create(path)?;
     let mut w = BufWriter::new(f);
 
-    writeln!(w, "host,port,protocol,pqc_supported,pqc_algorithms,negotiated_group,negotiated_cipher,tls12_fallback,risk_level,scsv_supported,cert_key_type,cert_key_bits,cert_validity_days")?;
+    writeln!(w, "host,port,protocol,pqc_supported,pqc_algorithms,negotiated_group,negotiated_cipher,tls12_fallback,risk_level,cert_key_type,cert_key_bits,cert_validity_days")?;
 
     for result in &scan.results {
         match result {
             ScanResult::Tls {
                 targetspec, pqc_supported, pqc_algos, hybrid_algos,
                 negotiated_group, negotiated_cipher_suite,
-                handshake_tls12, hndl_assessment, scsv_supported, handshake_pqc, ..
+                handshake_tls12, hndl_assessment, handshake_pqc, ..
             } => {
                 let mut algos = Vec::new();
                 if let Some(p) = pqc_algos { algos.extend(p.iter().cloned()); }
@@ -482,7 +472,6 @@ fn write_csv(path: &str, scan: &Scan) -> Result<()> {
 
                 let tls12 = handshake_tls12.as_ref().map(|h| h.completed).unwrap_or(false);
                 let hndl = hndl_assessment.as_ref().map(|h| format!("{}", h.risk_level)).unwrap_or_default();
-                let scsv = scsv_supported.map(|s| s.to_string()).unwrap_or_default();
 
                 let (kt, kb, vd) = handshake_pqc.as_ref().map(|h| {
                     (
@@ -492,12 +481,12 @@ fn write_csv(path: &str, scan: &Scan) -> Result<()> {
                     )
                 }).unwrap_or_default();
 
-                writeln!(w, "{},{},TLS,{},{},{},{},{},{},{},{},{},{}",
+                writeln!(w, "{},{},TLS,{},{},{},{},{},{},{},{},{}",
                     targetspec.host, targetspec.port, pqc_supported,
                     algos.join(";"),
                     negotiated_group.as_deref().unwrap_or(""),
                     negotiated_cipher_suite.as_deref().unwrap_or(""),
-                    tls12, hndl, scsv, kt, kb, vd,
+                    tls12, hndl, kt, kb, vd,
                 )?;
             }
             ScanResult::Ssh {
@@ -534,7 +523,7 @@ fn write_xml(path: &str, scan: &Scan) -> Result<()> {
             ScanResult::Tls {
                 targetspec, pqc_supported, pqc_algos, hybrid_algos,
                 negotiated_group, negotiated_cipher_suite,
-                handshake_tls12, hndl_assessment, scsv_supported, handshake_pqc,
+                handshake_tls12, hndl_assessment, handshake_pqc,
                 error, ..
             } => {
                 writeln!(w, "  <target host=\"{}\" port=\"{}\" protocol=\"TLS\">",
@@ -565,10 +554,6 @@ fn write_xml(path: &str, scan: &Scan) -> Result<()> {
 
                     let tls12 = handshake_tls12.as_ref().map(|h| h.completed).unwrap_or(false);
                     writeln!(w, "    <tls12_fallback>{}</tls12_fallback>", tls12)?;
-
-                    if let Some(scsv) = scsv_supported {
-                        writeln!(w, "    <scsv_supported>{}</scsv_supported>", scsv)?;
-                    }
 
                     if let Some(hs) = handshake_pqc {
                         if hs.peer_certificate_key_type.is_some() {

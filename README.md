@@ -5,7 +5,7 @@
 
 *Scan SSH/TLS servers for PQC support, validate real handshake behavior, and assess quantum risk*
 
-> **Fork note:** This fork extends [pqcscan](https://github.com/anvilsecure/pqcscan) by Anvil Secure with full TLS handshake validation, downgrade attack detection, quantum risk assessment, SCSV fallback testing, and X.509 certificate analysis. It goes beyond checking what servers advertise to validating what they actually negotiate — and flags whether captured traffic is decryptable by a future quantum computer.
+> **Fork note:** This fork extends [pqcscan](https://github.com/anvilsecure/pqcscan) by Anvil Secure with full TLS handshake validation, downgrade attack detection, quantum risk assessment, and X.509 certificate analysis. It goes beyond checking what servers advertise to validating what they actually negotiate — and flags whether captured traffic is decryptable by a future quantum computer.
 
 ## Table of Contents
 
@@ -64,7 +64,7 @@ pqcscan tls-scan -T targets.txt -o results.json
 pqcscan tls-scan -t cloudflare.com --validate-handshake
 ```
 
-This performs three real handshakes, tests SCSV fallback signaling, parses the server certificate, and produces a risk rating.
+This performs three real handshakes, parses the server certificate, and produces a risk rating.
 
 ## Example Output
 
@@ -75,13 +75,11 @@ $ pqcscan tls-scan -t cloudflare.com --validate-handshake
   PQCscan Summary
 ═══════════════════════════════════════════════════════════════
 
-  Scanned cloudflare.com:443 in 5.05s
+  Scanned cloudflare.com:443 in 1.86s
 
-  ┌─ cloudflare.com:443 (TLS)
-  │
-  │  🟡 Risk Assessment: MEDIUM
-  │  ✅ PQC Key Exchange: X25519MLKEM768 (TLS 1.3)
-  │  ✅ TLS Fallback SCSV: Supported
+  ┌─ 🟡 Risk: MEDIUM — cloudflare.com:443 (TLS)
+  │  ✅ PQC Key Exchange:
+  │        - X25519MLKEM768
   │  ⚠️  Vulnerable key exchange algorithms:
   │        - ECDHE (TLS 1.2)
   │        - X25519 (TLS 1.3)
@@ -141,7 +139,7 @@ Completes three real TLS handshakes per target using [rustls](https://github.com
 2. **Classical-only** (TLS 1.3) — excludes all PQC groups to test fallback behavior
 3. **TLS 1.2 probe** — tests whether the server accepts the legacy protocol
 
-Each handshake goes through the full lifecycle: key exchange, encrypted extensions, certificate exchange, and Finished messages. The tool also tests [TLS_FALLBACK_SCSV](https://www.rfc-editor.org/rfc/rfc7507) (RFC 7507) to check if the server detects version downgrade attempts.
+Each handshake goes through the full lifecycle: key exchange, encrypted extensions, certificate exchange, and Finished messages.
 
 ### Risk Assessment
 Compares handshake results to detect **downgrade attacks** (server chose classical when PQC was offered) and runs a quantum risk assessment. The overall rating uses a 5-tier severity scale:
